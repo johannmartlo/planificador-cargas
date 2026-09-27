@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="color-scheme" content="dark light" />
+  <!-- Anti-FOUC: aplica tema almacenado antes de cualquier render -->
+  <script>
+  {
+    var _t = localStorage.getItem('planificador-theme');
+    var _theme = (_t === 'light' || _t === 'dark') ? _t : 'dark';
+    document.documentElement.setAttribute('data-theme', _theme);
+  }
+  </script>
+  <!-- FASE 18 · MOBILE SHELL: viewport-fit=cover habilita env(safe-area-inset-*)
+       FASE 18.3 · OJO: este <meta> es INERTE en Google Apps Script. La doc de
+       HtmlOutput dice: "Meta tags included directly in an Apps Script HTML file
+       are ignored". El viewport efectivo lo pone gas/Code.gs con
+       output.addMetaTag('viewport', ...). NO borres esa línea pensando que este
+       <meta> la sustituye: sin ella iOS maqueta a ~980px y encoge la app ~0,4x.
+       Se conserva aquí solo por paridad con la versión local (file://). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Planificador de Carga — Hoja de Expedición Digital</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- html2pdf.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  
+  <!-- Tipografía Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- FASE 18 · MOBILE SHELL: capa de presentación móvil.
+       Todo su contenido vive en @media (max-width: 1023.98px): el shell de
+       escritorio (>= 1024px) no se ve afectado. No contiene lógica de negocio. -->
+  <!-- FASE 19 · GAS: el CSS móvil se inyecta como <style> en tiempo de render
+       (scriptlet sin escape). El archivo sigue siendo src/mobile.css verbatim. -->
+  <style><?!= include('SRC_mobile_css.html'); ?></style>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            linear: {
+              bg: '#0B0C0E',
+              surface: '#121316',
+              card: '#16181B',
+              hover: '#1D2024',
+              border: '#22252A',
+              activeBorder: '#383D45',
+              text: '#EDEDEF',
+              muted: '#8A8F98',
+              dim: '#5E6470'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* ================================================================
+       SISTEMA DE TEMA: DESIGN TOKENS (FASE 1A - SEMANTIC SYSTEM)
+       Variables semánticas universales para Desktop.
+       Light y Dark son dos temas completos, simétricos y legibles.
+    ================================================================ */
+
+    /* --- DARK (por defecto) --- */
+    :root,
+    html[data-theme="dark"] {
+      --clr-bg:            #0B0C0E;
+      --clr-surface:       #121316;
+      --clr-card:          #16181B;
+      --clr-card-elevated: #1C1F25;
+      --clr-border:        #22252A;
+      --clr-border-strong: #2E323B;
+      --clr-text-primary:  #EDEDEF;
+      --clr-text-secondary:#8A8F98;
+      --clr-text-muted:    #5E6470;
+      --clr-accent:        #6366F1;
+      --clr-success:       #10B981;
+      --clr-warning:       #F59E0B;
+      --clr-danger:        #EF4444;
+
+      /* Auxiliares */
+      --clr-hover:         #1D2024;
+      --clr-action-bg:     #EDEDEF;
+      --clr-action-text:   #0B0C0E;
+      --clr-action-hover:  #FFFFFF;
+      --clr-border-active: #383D45;
+      --clr-placeholder:   #5E6470;
+      --clr-selection-bg:  #3B4A5A;
+      --clr-selection-text:#EDEDEF;
+      --clr-caret:         #EDEDEF;
+      color-scheme: dark;
+    }
+
+    /* --- LIGHT (Industrial Clean High-Contrast) --- */
+    html[data-theme="light"] {
+      --clr-bg:            #F4F5F7;
+      --clr-surface:       #FFFFFF;
+      --clr-card:          #FFFFFF;
+      --clr-card-elevated: #F8FAFC;
+      --clr-border:        #E2E8F0;
+      --clr-border-strong: #CBD5E1;
+      --clr-text-primary:  #0F172A;
+      --clr-text-secondary:#475569;
+      --clr-text-muted:    #64748B;
+      --clr-accent:        #4F46E5;
+      --clr-success:       #059669;
+      --clr-warning:       #D97706;
+      --clr-danger:        #DC2626;
+
+      /* Auxiliares */
+      --clr-hover:         #F1F5F9;
+      --clr-action-bg:     #0F172A;
+      --clr-action-text:   #FFFFFF;
+      --clr-action-hover:  #1E293B;
+      --clr-border-active: #94A3B8;
+      --clr-placeholder:   #94A3B8;
+      --clr-selection-bg:  #C7D2FE;
+      --clr-selection-text:#0F172A;
+      --clr-caret:         #0F172A;
+      color-scheme: light;
+    }
+
+    /* Clases de utilidad semántica */
+    .bg-app { background-color: var(--clr-bg) !important; }
+    .bg-surface { background-color: var(--clr-surface) !important; }
+    .bg-card { background-color: var(--clr-card) !important; }
+    .bg-card-elevated { background-color: var(--clr-card-elevated) !important; }
+    .border-app { border-color: var(--clr-border) !important; }
+    .border-strong { border-color: var(--clr-border-strong) !important; }
+    .text-primary { color: var(--clr-text-primary) !important; }
+    .text-secondary { color: var(--clr-text-secondary) !important; }
+    .text-muted { color: var(--clr-text-muted) !important; }
+    .text-success { color: var(--clr-success) !important; }
+    .text-warning { color: var(--clr-warning) !important; }
+    .text-danger { color: var(--clr-danger) !important; }
+
+    /* Body y contenedores Desktop */
+    html body {
+      background-color: var(--clr-bg);
+      color: var(--clr-text-primary);
+    }
+    header.desktop-only {
+      background-color: color-mix(in srgb, var(--clr-bg) 95%, transparent) !important;
+      border-color: var(--clr-border) !important;
+    }
+    footer.desktop-only {
+      background-color: var(--clr-bg) !important;
+      border-color: var(--clr-border) !important;
+    }
+
+    /* Mapeo limpio y unificado de clases de color a tokens semánticos */
+    .bg-\[\#0B0C0E\], .bg-\[\#0E1013\], .bg-\[\#0B0C0D\] { background-color: var(--clr-bg) !important; }
+    .bg-\[\#121316\], .bg-\[\#151719\] { background-color: var(--clr-surface) !important; }
+    .bg-\[\#16181B\] { background-color: var(--clr-card) !important; }
+    .bg-\[\#1C1F25\], .bg-\[\#1D2024\] { background-color: var(--clr-card-elevated) !important; }
+    .hover\:bg-\[\#1D2024\]:hover, .hover\:bg-\[\#22252A\]:hover { background-color: var(--clr-hover) !important; }
+
+    .border-\[\#22252A\] { border-color: var(--clr-border) !important; }
+    .border-\[\#2E323B\], .border-\[\#383D45\], .border-\[\#2B2F36\] { border-color: var(--clr-border-strong) !important; }
+
+    .text-\[\#EDEDEF\] { color: var(--clr-text-primary) !important; }
+    .text-\[\#8A8F98\] { color: var(--clr-text-secondary) !important; }
+    .text-\[\#5E6470\] { color: var(--clr-text-muted) !important; }
+
+    /* En tema claro, el texto general oscuro aplica a contenedores y textos planos sin romper botones */
+    html[data-theme="light"] .text-white:not(button):not(.badge-colored):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-blue"]):not([class*="bg-amber"]):not([class*="bg-rose"]) {
+      color: var(--clr-text-primary) !important;
+    }
+
+    /* Botones primarios de acción (Analizar, Generar Plan, Exportar PDF) */
+    button.bg-\[\#EDEDEF\],
+    #btn-analyze,
+    #btn-generate-plan,
+    #btn-export-pdf,
+    #btn-add-fixed-lock {
+      background-color: var(--clr-action-bg) !important;
+      color: var(--clr-action-text) !important;
+    }
+    button.bg-\[\#EDEDEF\] *,
+    #btn-analyze *,
+    #btn-generate-plan *,
+    #btn-export-pdf *,
+    #btn-add-fixed-lock * {
+      color: var(--clr-action-text) !important;
+    }
+    button.bg-\[\#EDEDEF\]:hover,
+    #btn-analyze:hover,
+    #btn-generate-plan:hover,
+    #btn-export-pdf:hover,
+    #btn-add-fixed-lock:hover {
+      background-color: var(--clr-action-hover) !important;
+    }
+
+    /* Inputs, selects y textareas */
+    input[type="number"],
+    input[type="text"],
+    select,
+    textarea {
+      background-color: var(--clr-surface) !important;
+      color: var(--clr-text-primary) !important;
+      border-color: var(--clr-border) !important;
+    }
+    input[type="number"]:focus,
+    input[type="text"]:focus,
+    select:focus,
+    textarea:focus {
+      background-color: var(--clr-surface) !important;
+      border-color: var(--clr-accent) !important;
+      outline: 2px solid var(--clr-accent) !important;
+      outline-offset: 0 !important;
+    }
+    select option {
+      background-color: var(--clr-surface);
+      color: var(--clr-text-primary);
+    }
+    textarea::placeholder,
+    input::placeholder {
+      color: var(--clr-placeholder) !important;
+      opacity: 1 !important;
+    }
+    ::selection {
+      background-color: var(--clr-selection-bg) !important;
+      color: var(--clr-selection-text) !important;
+    }
+    textarea::selection,
+    input::selection {
+      background-color: var(--clr-selection-bg) !important;
+      color: var(--clr-selection-text) !important;
+    }
+    textarea, input {
+      caret-color: var(--clr-caret) !important;
+    }
+
+    /* Estilos dedicados de alta legibilidad para el textarea #tsv-input */
+    html[data-theme] #tsv-input {
+      background-color: var(--clr-surface) !important;
+      color: var(--clr-text-primary) !important;
+      border-color: var(--clr-border) !important;
+      caret-color: var(--clr-caret) !important;
+    }
+    html[data-theme] #tsv-input::placeholder {
+      color: var(--clr-placeholder) !important;
+      opacity: 1 !important;
+    }
+    html[data-theme] #tsv-input:focus {
+      background-color: var(--clr-surface) !important;
+      color: var(--clr-text-primary) !important;
+      border-color: var(--clr-focus-ring) !important;
+      outline: 2px solid var(--clr-focus-ring) !important;
+      outline-offset: 0 !important;
+    }
+    html[data-theme] #tsv-input::selection {
+      background-color: var(--clr-selection-bg) !important;
+      color: var(--clr-selection-text) !important;
+    }
+
+    /* Sub-cards dentro de detalles físicos de torres */
+    html[data-theme="light"] .digital-loading-card [class*="bg-[#121316]"] {
+      background-color: var(--clr-surface2) !important;
+      border-color: var(--clr-border) !important;
+    }
+    html[data-theme="light"] .digital-loading-card [class*="bg-[#16181B]"] {
+      background-color: var(--clr-surface) !important;
+      border-color: var(--clr-border) !important;
+    }
+
+    /* Altura y datos operativos críticos en torres */
+    .digital-loading-card [class*="text-[10px]"] strong,
+    .digital-loading-card strong.card-boxes {
+      font-weight: 800;
+    }
+    html[data-theme="light"] .digital-loading-card .font-mono strong {
+      color: var(--clr-text-primary) !important;
+    }
+
+    /* SEMÁNTICA Y BADGES EN MODO CLARO (Alto Contraste WCAG AAA/AA) */
+    html[data-theme="light"] [class*="bg-emerald-950"] {
+      background-color: #D1FAE5 !important;
+      border-color: #6EE7B7 !important;
+      color: #065F46 !important;
+    }
+    html[data-theme="light"] [class*="text-emerald-400"],
+    html[data-theme="light"] [class*="text-emerald-300"] {
+      color: #047857 !important;
+    }
+
+    html[data-theme="light"] [class*="bg-amber-950"] {
+      background-color: #FEF3C7 !important;
+      border-color: #FCD34D !important;
+      color: #92400E !important;
+    }
+    html[data-theme="light"] [class*="text-amber-400"],
+    html[data-theme="light"] [class*="text-amber-300"],
+    html[data-theme="light"] [class*="text-amber-200"] {
+      color: #92400E !important;
+    }
+
+    html[data-theme="light"] [class*="bg-rose-950"],
+    html[data-theme="light"] [class*="bg-rose-900"] {
+      background-color: #FFE4E6 !important;
+      border-color: #FDA4AF !important;
+      color: #9F1239 !important;
+    }
+    html[data-theme="light"] [class*="text-rose-400"],
+    html[data-theme="light"] [class*="text-rose-300"],
+    html[data-theme="light"] [class*="text-rose-200"] {
+      color: #9F1239 !important;
+    }
+
+    html[data-theme="light"] [class*="bg-blue-950"] {
+      background-color: #DBEAFE !important;
+      border-color: #93C5FD !important;
+      color: #1E40AF !important;
+    }
+    html[data-theme="light"] [class*="text-blue-400"],
+    html[data-theme="light"] [class*="text-blue-300"] {
+      color: #1E40AF !important;
+    }
+
+    html[data-theme="light"] [class*="bg-purple-950"] {
+      background-color: #F3E8FF !important;
+      border-color: #D8B4FE !important;
+      color: #6B21A8 !important;
+    }
+    html[data-theme="light"] [class*="text-purple-400"],
+    html[data-theme="light"] [class*="text-purple-300"] {
+      color: #6B21A8 !important;
+    }
+
+    /* Badge de estado en header */
+    html[data-theme] #badge-plan-status {
+      background-color: var(--clr-surface2);
+      color: var(--clr-text-secondary);
+      border-color: var(--clr-border);
+    }
+    html[data-theme="light"] #badge-plan-status {
+      background-color: #F0F2F5 !important;
+      color: #4B535C !important;
+      border-color: #D9DDE2 !important;
+    }
+
+    /* Scrollbar */
+    html[data-theme] ::-webkit-scrollbar-thumb        { background: var(--clr-scrollbar);     }
+    html[data-theme] ::-webkit-scrollbar-thumb:hover  { background: var(--clr-scrollbar-hov); }
+
+    /* Header sticky */
+    html[data-theme="light"] header.sticky {
+      background-color: rgba(255, 255, 255, 0.95) !important;
+      border-color: var(--clr-border) !important;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+    }
+
+    /* Botón toggle de tema */
+    #btn-theme-toggle,
+    #btn-theme-toggle-desktop,
+    .btn-theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 0.375rem;
+      border: 1px solid var(--clr-border);
+      background: var(--clr-card);
+      color: var(--clr-text-secondary);
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+    }
+    #btn-theme-toggle:hover,
+    #btn-theme-toggle-desktop:hover,
+    .btn-theme-toggle:hover {
+      background: var(--clr-hover);
+      border-color: var(--clr-border-active);
+      color: var(--clr-text-primary);
+    }
+    #btn-theme-toggle:focus-visible,
+    #btn-theme-toggle-desktop:focus-visible,
+    .btn-theme-toggle:focus-visible {
+      outline: 2px solid var(--clr-text-secondary);
+      outline-offset: 2px;
+    }
+    #btn-theme-toggle:active,
+    #btn-theme-toggle-desktop:active,
+    .btn-theme-toggle:active {
+      transform: scale(0.94);
+    }
+
+
+    /* ================================================================
+       UTILIDADES GENERALES (sin relación con tema)
+    ================================================================ */
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #22252A; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #383D45; }
+
+
+    /* Steppers de stock en Desktop */
+    @media (min-width: 1024px) {
+      .stock-stepper {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .stock-stepper .stock-step {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border-radius: 4px;
+        border: 1px solid var(--clr-border);
+        background: var(--clr-surface);
+        color: var(--clr-text-secondary);
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+        user-select: none;
+      }
+      .stock-stepper .stock-step:hover {
+        background: var(--clr-hover);
+        border-color: var(--clr-border-active);
+        color: var(--clr-text-primary);
+      }
+      .stock-stepper .stock-step:active {
+        transform: scale(0.94);
+      }
+      .stock-stepper .stock-step:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .stock-stepper .stock-unit {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--clr-text-muted);
+        padding: 0 2px;
+      }
+    }
+
+    /* Badges de procedencia en Carga de Plataforma (Plan de Carga) */
+    .card-badge-anticipado {
+      background: rgba(245, 158, 11, 0.12) !important;
+      color: #fbbf24 !important;
+      border: 1px solid rgba(245, 158, 11, 0.3) !important;
+    }
+    .card-badge-mixto {
+      background: rgba(14, 165, 233, 0.12) !important;
+      color: #38bdf8 !important;
+      border: 1px solid rgba(14, 165, 233, 0.3) !important;
+    }
+    .card-badge-dividido {
+      background: rgba(168, 85, 247, 0.12) !important;
+      color: #c084fc !important;
+      border: 1px solid rgba(168, 85, 247, 0.3) !important;
+    }
+    .card-badge-prevision {
+      background: #1D2024 !important;
+      color: #8A8F98 !important;
+      border: 1px solid #2B2F36 !important;
+    }
+
+    html[data-theme="light"] .card-badge-anticipado {
+      background: #fef3c7 !important;
+      color: #92400e !important;
+      border-color: #fcd34d !important;
+    }
+    html[data-theme="light"] .card-badge-mixto {
+      background: #e0f2fe !important;
+      color: #0369a1 !important;
+      border-color: #7dd3fc !important;
+    }
+    html[data-theme="light"] .card-badge-dividido {
+      background: #f3e8ff !important;
+      color: #6b21a8 !important;
+      border-color: #d8b4fe !important;
+    }
+    html[data-theme="light"] .card-badge-prevision {
+      background: #f1f5f9 !important;
+      color: #475569 !important;
+      border-color: #cbd5e1 !important;
+    }
+
+    /* Estilos para renderizado limpio de PDF en formato blanco de papel */
+    .theme-pdf-export {
+      background: white !important;
+      color: #0f172a !important;
+      padding: 0 !important;
+    }
+    .theme-pdf-export #print-doc-header {
+      display: block !important;
+      border-color: #0f172a !important;
+      color: #0f172a !important;
+    }
+    .theme-pdf-export #print-doc-header * {
+      color: #0f172a !important;
+    }
+    .theme-pdf-export #print-articles-summary {
+      border-color: #cbd5e1 !important;
+    }
+    .theme-pdf-export #print-articles-totals-list span {
+      background: #f8fafc !important;
+      border: 1px solid #cbd5e1 !important;
+      color: #0f172a !important;
+    }
+    .theme-pdf-export .digital-loading-card,
+    html[data-theme] .theme-pdf-export .digital-loading-card,
+    html[data-theme] .theme-pdf-export [class*="bg-[#16181B]"],
+    html[data-theme] .theme-pdf-export [class*="bg-[#121316]"] {
+      background: white !important;
+      background-color: white !important;
+      border: 1px solid #cbd5e1 !important;
+      color: #0f172a !important;
+      box-shadow: none !important;
+    }
+    .theme-pdf-export .digital-loading-card h3,
+    html[data-theme] .theme-pdf-export .digital-loading-card h3 {
+      color: #0f172a !important;
+    }
+    .theme-pdf-export .digital-loading-card .card-boxes,
+    html[data-theme] .theme-pdf-export .digital-loading-card .card-boxes {
+      color: #0f172a !important;
+    }
+    .theme-pdf-export .digital-loading-card .card-badge,
+    html[data-theme] .theme-pdf-export .digital-loading-card .card-badge {
+      color: #475569 !important;
+    }
+    .theme-pdf-export .digital-loading-card .text-prod,
+    html[data-theme] .theme-pdf-export .digital-loading-card .text-prod {
+      color: #1e293b !important;
+    }
+    .theme-pdf-export .digital-loading-card .badge-pallet,
+    html[data-theme] .theme-pdf-export .digital-loading-card .badge-pallet {
+      color: #475569 !important;
+    }
+    .theme-pdf-export .digital-loading-card div,
+    html[data-theme] .theme-pdf-export .digital-loading-card div {
+      border-color: #e2e8f0 !important;
+    }
+    html[data-theme] .theme-pdf-export .digital-loading-card * {
+      color: #0f172a !important;
+    }
+    html[data-theme] .theme-pdf-export .digital-loading-card .text-\[\#8A8F98\],
+    html[data-theme] .theme-pdf-export .digital-loading-card [class*="text-[#8A8F98]"],
+    html[data-theme] .theme-pdf-export .digital-loading-card [class*="text-[#5E6470]"] {
+      color: #475569 !important;
+    }
+    .theme-pdf-export #print-signatures-block {
+      display: grid !important;
+      border-color: #cbd5e1 !important;
+      color: #0f172a !important;
+    }
+    .theme-pdf-export #print-signatures-block * {
+      color: #0f172a !important;
+    }
+
+    .theme-pdf-export .card-badge-anticipado,
+    html[data-theme] .theme-pdf-export .card-badge-anticipado {
+      background: #fef3c7 !important;
+      color: #92400e !important;
+      border: 1px solid #fcd34d !important;
+    }
+    .theme-pdf-export .card-badge-mixto,
+    html[data-theme] .theme-pdf-export .card-badge-mixto {
+      background: #e0f2fe !important;
+      color: #0369a1 !important;
+      border: 1px solid #7dd3fc !important;
+    }
+    .theme-pdf-export .card-badge-dividido,
+    html[data-theme] .theme-pdf-export .card-badge-dividido {
+      background: #f3e8ff !important;
+      color: #6b21a8 !important;
+      border: 1px solid #d8b4fe !important;
+    }
+    .theme-pdf-export .card-badge-prevision,
+    html[data-theme] .theme-pdf-export .card-badge-prevision {
+      background: #f1f5f9 !important;
+      color: #475569 !important;
+      border: 1px solid #cbd5e1 !important;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 8mm;
+      }
+      body, html {
+        background: white !important;
+        color: #0f172a !important;
+        font-size: 11px !important;
+      }
+      header, footer, #prevision-section, #stock-section, #locks-section, #options-section, #actions-toolbar, #executive-summary-section, #warnings-errors-section, #plan-comparison-section, #print-incidences-block, details, .no-print {
+        display: none !important;
+      }
+      main {
+        display: block !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        max-width: 100% !important;
+      }
+      #results-column {
+        width: 100% !important;
+        background: white !important;
+        color: #0f172a !important;
+      }
+      #print-doc-header {
+        display: block !important;
+        border-color: #0f172a !important;
+      }
+      #print-doc-header * {
+        color: #0f172a !important;
+      }
+      #print-articles-summary {
+        border-color: #cbd5e1 !important;
+      }
+      #print-articles-totals-list span {
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #0f172a !important;
+      }
+      #print-signatures-block {
+        display: grid !important;
+        border-color: #cbd5e1 !important;
+        color: #0f172a !important;
+      }
+      #print-signatures-block * {
+        color: #0f172a !important;
+      }
+      #platform-plan-cards-container {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+      }
+      .digital-loading-card {
+        background: white !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #0f172a !important;
+        box-shadow: none !important;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .digital-loading-card * {
+        color: #0f172a !important;
+      }
+      tr, .break-inside-avoid {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      * {
+        box-shadow: none !important;
+        text-shadow: none !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-[#0B0C0E] text-[#EDEDEF] antialiased min-h-screen flex flex-col font-sans">
+
+  <!-- ================================================================
+       FASE 18 · MOBILE SHELL — HEADER COMPACTO (§6)
+       Sólo visible en < 1024px. Reutiliza los MISMOS IDs de estado que
+       rellena UIController (badge-delivery-date, badge-plan-status,
+       badge-plan-sync, btn-theme-toggle): una sola fuente de verdad.
+       El comportamiento "primera coincidencia gana" de getElementById hace
+       que en móvil estos badges sean los que se actualizan.
+  ================================================================ -->
+  <header id="mobile-header" class="mobile-only">
+    <div class="mh-row">
+      <div class="mh-left">
+        <span class="mh-dot"></span>
+        <h1 class="mh-title">Planificador<span class="mh-title-rest"> de Carga</span></h1>
+        <span class="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-[#16181B] text-[#8A8F98] border border-[#22252A]">RC3.1</span>
+      </div>
+      <div class="mh-right">
+        <span id="badge-delivery-date" class="text-xs font-mono font-medium text-[#8A8F98]">--/--/----</span>
+        <span id="badge-plan-sync" class="hidden px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-emerald-950/40 text-emerald-400 border border-emerald-800/60"></span>
+        <span id="badge-plan-status" class="px-2.5 py-0.5 rounded text-xs font-mono font-medium uppercase tracking-wider bg-[#16181B] text-[#8A8F98] border border-[#22252A] transition-colors">IDLE</span>
+        <button
+          id="btn-theme-toggle"
+          type="button"
+          aria-label="Activar modo claro"
+          title="Activar modo claro"
+        >🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- HEADER COMPACTO Y LIMPIO (Linear style) -->
+  <header class="bg-[#0B0C0E]/90 backdrop-blur-md border-b border-[#22252A] sticky top-0 z-30 desktop-only">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
+        <h1 class="text-xs font-bold tracking-wider text-[#EDEDEF] uppercase">
+          PLANIFICADOR DE CARGA
+        </h1>
+        <span class="text-[#22252A] font-light">|</span>
+        <span class="text-[11px] font-semibold text-[#8A8F98] uppercase">ENTREGA:</span>
+        <span id="badge-delivery-date-desktop" class="text-xs font-mono font-bold text-[#EDEDEF]">
+          --/--/----
+        </span>
+        <span id="plan-calculated-time" class="hidden text-xs font-mono text-[#5E6470]"></span>
+      </div>
+
+      <div class="flex items-center gap-2.5">
+        <span id="badge-plan-sync" class="hidden px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-emerald-950/40 text-emerald-400 border border-emerald-800/60"></span>
+        <span id="badge-plan-status" class="px-2.5 py-0.5 rounded text-xs font-mono font-medium uppercase tracking-wider bg-[#16181B] text-[#8A8F98] border border-[#22252A] transition-colors">
+          IDLE
+        </span>
+        <button
+          id="btn-theme-toggle-desktop"
+          class="btn-theme-toggle"
+          type="button"
+          aria-label="Activar modo claro"
+          title="Activar modo claro"
+        >🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENIDO PRINCIPAL: FLUJO VERTICAL DE HOJA DE CARGA DIGITAL -->
+  <!-- FASE 18 · data-view = vista activa del shell móvil (router de presentación).
+       En escritorio este atributo no produce ningún efecto: no existen reglas
+       CSS fuera de @media (max-width: 1023.98px) que lo usen. -->
+  <main data-view="plan" class="max-w-5xl mx-auto px-4 sm:px-6 py-8 flex-1 w-full space-y-6">
+
+    <!-- ================================================================
+         FASE MOBILE V1 · WORKFLOW STEPPER PRINCIPAL (§1)
+         Columna vertebral de la experiencia móvil. Muestra las 4 etapas:
+         1. Previsión  2. Stock  3. Bloqueos  4. Plan (+ Salida posterior)
+         Permite saltar a cualquier etapa sin bloquear (NO WIZARD).
+    ================================================================ -->
+    <nav id="mobile-workflow-bar" class="mobile-workflow-bar mobile-only" aria-label="Flujo operativo">
+      <div class="mwb-track">
+        <button type="button" class="mwb-step is-active" data-wf-target="forecast" aria-current="step">
+          <span class="mwb-num">1</span>
+          <span class="mwb-body">
+            <span class="mwb-label">Previsión</span>
+            <span class="mwb-sub">Pega datos</span>
+          </span>
+        </button>
+        <span class="mwb-sep" aria-hidden="true"></span>
+        <button type="button" class="mwb-step is-pending" data-wf-target="stock">
+          <span class="mwb-num">2</span>
+          <span class="mwb-body">
+            <span class="mwb-label">Stock</span>
+            <span class="mwb-sub">Existencias</span>
+          </span>
+        </button>
+        <span class="mwb-sep" aria-hidden="true"></span>
+        <button type="button" class="mwb-step is-pending" data-wf-target="locks">
+          <span class="mwb-num">3</span>
+          <span class="mwb-body">
+            <span class="mwb-label">Bloqueos</span>
+            <span class="mwb-sub">Opcional</span>
+          </span>
+        </button>
+        <span class="mwb-sep" aria-hidden="true"></span>
+        <button type="button" class="mwb-step is-pending" data-wf-target="plan">
+          <span class="mwb-num">4</span>
+          <span class="mwb-body">
+            <span class="mwb-label">Plan</span>
+            <span class="mwb-sub">Generar</span>
+          </span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- ================================================================
+         FASE 18 · MOBILE SHELL — RESUMEN COMPACTO (§5)
+         6 cifras operativas que el usuario necesita para entender el estado
+         de la carga de un vistazo. Valores volcados por renderMobileKpis()
+         a partir del MISMO PlanningResult que Desktop.
+    ================================================================ -->
+    <section id="mobile-kpi-summary" class="mobile-only is-preplan" aria-label="Resumen de la carga">
+      <div class="mk-grid">
+        <div class="mk-cell">
+          <span class="mk-value" id="mkpi-boxes">0</span>
+          <span class="mk-label">Cajas</span>
+        </div>
+        <div class="mk-cell is-assigned">
+          <span class="mk-value" id="mkpi-assigned">0</span>
+          <span class="mk-label">Asignadas</span>
+        </div>
+        <div class="mk-cell is-pending is-zero" id="mkpi-pending-cell">
+          <span class="mk-value" id="mkpi-pending">0</span>
+          <span class="mk-label">Pendientes</span>
+        </div>
+        <div class="mk-cell">
+          <span class="mk-value" id="mkpi-platforms">0</span>
+          <span class="mk-label">Plataformas</span>
+        </div>
+        <div class="mk-cell">
+          <span class="mk-value" id="mkpi-pallets">0</span>
+          <span class="mk-label">Palets</span>
+        </div>
+        <div class="mk-cell">
+          <span class="mk-value" id="mkpi-towers">0</span>
+          <span class="mk-label">Torres</span>
+        </div>
+      </div>
+      <div class="mk-foot" id="mkpi-foot">Sin plan calculado · Introduce la previsión y el stock</div>
+    </section>
+
+    <!-- 1. PREVISIÓN DE CARGA (Entrada Principal) -->
+    <section id="prevision-section" data-view="forecast" class="border border-[#22252A] rounded-lg p-5 bg-[#121316] space-y-3">
+      <div class="wf-stage-banner mobile-only">
+        <span class="wf-stage-tag">PASO 1 DE 4</span>
+        <span class="wf-stage-title">Previsión de Carga</span>
+      </div>
+      <!-- Barra colapsada de previsión (Progressive Disclosure) -->
+      <div id="forecast-summary-bar" class="hidden flex items-center justify-between p-3 rounded-lg bg-card border border-app text-xs flex-wrap gap-2">
+        <div class="flex items-center gap-2">
+          <span class="text-emerald-500 font-bold">✓ PREVISIÓN OFICIAL CARGADA</span>
+          <span class="text-muted">·</span>
+          <span id="forecast-summary-text" class="text-secondary font-mono">0 líneas detectadas</span>
+        </div>
+        <button id="btn-toggle-forecast-input" type="button" class="px-2.5 py-1 rounded bg-surface hover:bg-hover text-secondary hover:text-primary border border-app text-[11px] font-medium transition-colors cursor-pointer">
+          Modificar texto de previsión ▾
+        </button>
+      </div>
+
+      <!-- Contenedor desplegado de entrada de previsión -->
+      <div id="forecast-input-wrapper" class="space-y-3">
+        <div class="flex items-baseline justify-between">
+          <div>
+            <h2 class="text-xs font-bold uppercase tracking-wider text-[#EDEDEF]">Previsión de Carga</h2>
+            <p class="text-xs text-[#8A8F98] mt-0.5">Pega directamente la previsión recibida por email (texto, tablas, tabuladores sin transformación previa).</p>
+          </div>
+          <div class="flex items-center gap-1.5 text-xs text-[#5E6470]">
+            <span>Ejemplos:</span>
+            <button id="btn-load-18sep" type="button" class="px-2 py-0.5 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] text-xs font-medium transition-colors">
+              18/09
+            </button>
+            <button id="btn-load-26aug" type="button" class="px-2 py-0.5 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] text-xs font-medium transition-colors">
+              26/08
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label for="tsv-input" class="sr-only">Previsión de Carga</label>
+          <textarea
+            id="tsv-input"
+            rows="9"
+            placeholder="PEGA AQUÍ LA PREVISIÓN TAL COMO LA RECIBES&#10;&#10;Pega directamente el contenido del correo electrónico (sin necesidad de transformar el formato ni ordenar columnas)..."
+            class="w-full text-xs font-mono p-3 bg-[#0B0C0E] border border-[#22252A] rounded-md focus:bg-[#121316] focus:outline-none focus:border-[#EDEDEF] text-[#EDEDEF] placeholder-[#5E6470] transition-colors"
+            style="min-height: 220px;"
+          ></textarea>
+        </div>
+
+        <div class="flex items-center justify-between pt-1 gap-2 flex-wrap">
+          <button
+            id="btn-analyze"
+            type="button"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#EDEDEF] hover:bg-white text-[#0B0C0E] font-semibold text-xs tracking-wide transition-all active:scale-[0.98] shadow-sm cursor-pointer"
+          >
+            <span>ANALIZAR PREVISIÓN →</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Previsión Consolidada (Unificación de Pedidos Anticipados + Previsión Oficial) -->
+      <div id="consolidated-forecast-container" class="rounded-lg bg-card border border-app p-4 space-y-3">
+        <div class="flex items-center justify-between flex-wrap gap-2.5">
+          <div class="flex items-center gap-2.5">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-primary">Demanda Consolidada por Plataforma</h3>
+            <span id="consolidated-count-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium bg-surface text-secondary border border-app">0 pedidos activos</span>
+          </div>
+          <button
+            id="btn-open-add-order"
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-hover text-primary border border-app font-semibold text-xs tracking-wide transition-all active:scale-[0.98] shadow-sm cursor-pointer"
+          >
+            <span>+ Añadir Pedido a la Entrega</span>
+          </button>
+        </div>
+
+        <!-- Selector de Fecha de Entrega como dato de primera clase -->
+        <div id="delivery-date-selector-container" class="p-2.5 rounded bg-[#0B0C0E] border border-[#22252A]">
+          <span class="text-xs text-[#5E6470] italic">Sin fechas registradas</span>
+        </div>
+
+        <!-- Lista Jerárquica de Plataformas (V4 Desktop: Plataforma -> Producto/Variedad -> Pedidos -> Acciones) -->
+        <div id="consolidated-platforms-list" class="space-y-2.5">
+          <div class="py-6 text-center text-xs text-[#5E6470] italic">
+            No hay pedidos registrados en la previsión consolidada.
+          </div>
+        </div>
+        <tbody id="consolidated-orders-table-body" class="hidden"></tbody>
+      </div>
+
+      <!-- Confirmación de Pre-análisis (Sleek horizontal feedback) -->
+      <div id="forecast-analysis-card" class="hidden rounded-md bg-[#16181B] border border-[#22252A] p-3 space-y-2 text-xs">
+        <div class="flex items-center justify-between flex-wrap gap-2 text-[#EDEDEF]">
+          <div class="flex items-center gap-2 font-semibold">
+            <span class="text-emerald-400 font-bold">✓ PREVISIÓN ANALIZADA</span>
+            <span class="text-[#383D45]">·</span>
+            <span class="font-mono text-white font-bold"><strong id="ana-total-requested">0 cjs</strong></span>
+            <span class="text-[#383D45]">·</span>
+            <span class="text-[#8A8F98]"><strong id="ana-valid-lines" class="text-[#EDEDEF]">0</strong> líneas válidas</span>
+            <span class="text-[#383D45]">·</span>
+            <span class="text-[#8A8F98]">Fecha: <strong id="ana-detected-date" class="text-[#EDEDEF]">--</strong></span>
+          </div>
+          <details class="text-[11px] text-[#5E6470] group">
+            <summary class="cursor-pointer font-medium hover:text-[#8A8F98] select-none py-0.5">
+              <span>Ver desglose técnico ▾</span>
+            </summary>
+            <div class="pt-2 space-y-2 border-t border-white/[0.06] mt-2">
+              <div class="flex gap-4 font-mono text-[11px] text-[#8A8F98]">
+                <span>Líneas totales: <strong id="ana-total-lines" class="text-white">0</strong></span>
+                <span>Con incidencia: <strong id="ana-error-lines" class="text-amber-400">0</strong></span>
+              </div>
+              <div id="ana-demands-breakdown" class="flex flex-wrap gap-1.5 pt-1"></div>
+              <div id="ana-platform-demands" class="space-y-1 max-h-36 overflow-y-auto pt-1"></div>
+            </div>
+          </details>
+        </div>
+
+        <div id="ana-corrupt-lines-box" class="hidden space-y-1 p-2 rounded bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs">
+          <div class="font-bold text-[10px] uppercase tracking-wider">Líneas no procesadas:</div>
+          <div id="ana-corrupt-lines-list" class="space-y-1 max-h-24 overflow-y-auto font-mono text-[10px]"></div>
+        </div>
+
+        <div class="wf-next-action-box mobile-only pt-2">
+          <button id="btn-next-to-stock" type="button" class="wf-next-btn">
+            <span>Continuar a Stock (Paso 2) →</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. RESUMEN OPERATIVO (1 línea tipográfica continua, Linear style) -->
+    <section id="executive-summary-section" class="no-print border-y border-[#22252A] py-3">
+      <div class="flex items-center justify-between flex-wrap gap-4 text-xs">
+        <div class="flex items-center gap-5 font-mono">
+          <span class="text-[#8A8F98]"><strong id="kpi-allocated" class="text-lg font-black text-white tabular-nums">0</strong> CAJAS</span>
+          <span class="text-[#22252A]">/</span>
+          <span class="text-[#8A8F98]"><strong id="kpi-truck-slots" class="text-lg font-black text-white tabular-nums">0</strong> PLATAFORMAS</span>
+          <span class="text-[#22252A]">/</span>
+          <span class="text-[#8A8F98]"><strong id="kpi-pallet-slots" class="text-lg font-black text-white tabular-nums">0</strong> HUECOS</span>
+          <span class="text-[#22252A]">/</span>
+          <span class="text-[#8A8F98]"><strong id="kpi-pallets" class="text-lg font-black text-white tabular-nums">0</strong> PALETS</span>
+        </div>
+        <div class="flex items-center gap-3 text-xs text-[#5E6470] font-mono">
+          <span><strong id="kpi-requested" class="text-[#8A8F98]">0</strong> solicitadas</span>
+          <span class="text-[#22252A]">·</span>
+          <span class="text-amber-400 font-semibold"><strong id="kpi-missing">0</strong> pendientes</span>
+          <span class="text-[#22252A]">·</span>
+          <span class="text-emerald-400 font-semibold"><strong id="kpi-service-rate">100.0%</strong> serv.</span>
+        </div>
+      </div>
+      <details class="hidden">
+        <div id="kpi-stock-details"></div>
+      </details>
+    </section>
+
+    <!-- 3. PLAN DE CARGA (PLATAFORMAS) - PROTAGONISTA ABSOLUTO (#results-column) -->
+    <div id="results-column" class="space-y-4">
+      <div class="wf-stage-banner mobile-only">
+        <span class="wf-stage-tag">PASO 4 DE 4</span>
+        <span class="wf-stage-title">Plan de Carga Resultante</span>
+      </div>
+      
+      <!-- Cabecera Exclusiva para Impresión A4 / PDF (Landscape Hoja Única) -->
+      <div id="print-doc-header" class="hidden pb-2 mb-2 border-b-2 border-slate-900">
+        <div class="flex items-baseline justify-between">
+          <div class="flex items-center gap-3">
+            <span class="font-black text-base text-slate-900 tracking-wider uppercase">PLAN DE CARGA</span>
+            <span class="text-slate-400 font-bold">|</span>
+            <span class="text-xs font-semibold text-slate-700">Fecha de entrega: <strong id="print-delivery-date" class="text-slate-900">--/--/----</strong></span>
+            <span id="print-emission-time" class="hidden"></span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-500 uppercase tracking-wider">Hoja de Expedición Muelle</span>
+        </div>
+        <!-- Resumen Global de Cajas Servidas por Artículo (Fase 16.6+) -->
+        <div id="print-articles-summary" class="mt-1.5 pt-1.5 border-t border-slate-200 flex items-center justify-between text-xs">
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class="font-bold text-slate-800 text-[10px] uppercase tracking-wider">TOTALES SERVIDOS:</span>
+            <div id="print-articles-totals-list" class="flex items-center gap-2 flex-wrap font-mono text-xs font-bold text-slate-900"></div>
+          </div>
+          <div class="font-mono text-xs font-bold text-slate-800 whitespace-nowrap">
+            TOTAL: <span id="print-grand-total-boxes" class="text-slate-900">0</span> cjs
+          </div>
+        </div>
+      </div>
+
+      <!-- Título de Sección en Pantalla -->
+      <div class="no-print flex items-baseline justify-between border-b border-[#22252A] pb-2">
+        <div>
+          <h2 class="text-lg font-bold uppercase tracking-tight text-[#EDEDEF]">PLAN DE CARGA</h2>
+          <span class="text-xs font-medium uppercase tracking-wider text-[#5E6470]">Expedición organizada por plataforma</span>
+        </div>
+      </div>
+
+      <!-- Contenedor de Plataformas (Estilo Hoja de Carga Digital) -->
+      <div id="platform-plan-cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="col-span-full border border-[#22252A] rounded-lg p-4 text-center text-[#8A8F98] text-xs bg-[#121316] flex items-center justify-center gap-2">
+          <span class="text-[#EDEDEF] font-mono font-bold">📋 PLAN PENDIENTE</span>
+          <span class="text-[#5E6470]">·</span>
+          <span>Introduce existencias de stock y pulsa <strong class="text-[#EDEDEF] font-semibold">Calcular Plan de Carga</strong></span>
+        </div>
+      </div>
+
+      <!-- Incidencias Críticas Accionables -->
+      <section id="warnings-errors-section" class="hidden pt-2">
+        <div class="border border-amber-800/40 rounded-lg p-4 bg-amber-950/20 text-amber-200 space-y-2">
+          <div class="font-bold text-xs uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+            <span>⚠</span>
+            <span>Incidencias de Expedición:</span>
+          </div>
+          <div id="errors-list-container" class="space-y-1.5"></div>
+          <div class="hidden"><div id="warnings-list-container"></div></div>
+        </div>
+      </section>
+
+      <!-- Bloque de Incidencias en Impresión / PDF (Oculto en pantalla para evitar duplicación visual) -->
+      <div id="print-incidences-block" class="hidden"></div>
+
+      <!-- Bloque de Firmas para Impresión / PDF -->
+      <div id="print-signatures-block" class="hidden pt-3 mt-3 border-t border-slate-300 grid grid-cols-2 gap-8 text-xs text-slate-700">
+        <div class="pt-1 text-left">
+          <span class="font-medium text-slate-800">Responsable de Muelle: ________________________________</span>
+        </div>
+        <div class="pt-1 text-right">
+          <span class="font-medium text-slate-800">Transportista: ________________________________</span>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           FASE MOBILE V1 · ACCIONES DE SALIDA EN VISTA PLAN
+           Una vez obtenido el plan, el usuario necesita expedir de inmediato:
+           PDF / WhatsApp / Imprimir directamente accesibles sin ir a MÁS.
+      ================================================================ -->
+      <div id="plan-mobile-output-actions" class="mobile-only wf-output-block hidden">
+        <div class="wf-output-header">
+          <span class="wf-output-tag">SALIDA OPERATIVA</span>
+          <h3 class="wf-output-title">Expedir y Comunicar Carga</h3>
+        </div>
+        <div class="wf-output-grid">
+          <button type="button" id="btn-plan-output-pdf" class="wf-output-btn">
+            <span class="wf-output-icon">🧾</span>
+            <span class="wf-output-btn-text">
+              <strong>Generar PDF</strong>
+              <small>Hoja A4 Muelle</small>
+            </span>
+          </button>
+          <button type="button" id="btn-plan-output-whatsapp" class="wf-output-btn">
+            <span class="wf-output-icon">💬</span>
+            <span class="wf-output-btn-text">
+              <strong>WhatsApp</strong>
+              <small>Copiar mensaje</small>
+            </span>
+          </button>
+          <button type="button" id="btn-plan-output-print" class="wf-output-btn">
+            <span class="wf-output-icon">🖨️</span>
+            <span class="wf-output-btn-text">
+              <strong>Imprimir</strong>
+              <small>Vista impresión</small>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. STOCK DISPONIBLE (Lista tabular de lectura y edición directa) -->
+    <section id="stock-section" data-view="stock" class="border border-[#22252A] rounded-lg p-5 bg-[#121316] space-y-4">
+      <div class="wf-stage-banner mobile-only">
+        <span class="wf-stage-tag">PASO 2 DE 4</span>
+        <span class="wf-stage-title">Stock Disponible</span>
+      </div>
+      <div class="flex items-center justify-between border-b border-[#22252A] pb-2 flex-wrap gap-2">
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#EDEDEF]">Stock Disponible</h3>
+          <p class="text-xs text-[#8A8F98]">Actualiza las existencias para recalcular el plan de reparto</p>
+        </div>
+        <!-- Banner de Plan Desactualizado -->
+        <div id="plan-desactualizado-banner" class="hidden p-2 rounded bg-amber-950/40 border border-amber-800/60 text-amber-200 text-xs flex items-center gap-2 font-semibold">
+          <span>⚠ PLAN DESACTUALIZADO</span>
+          <span class="text-[#383D45]">·</span>
+          <button id="btn-recalculate-banner" type="button" class="underline text-amber-300 hover:text-white font-bold transition-colors">
+            Recalcular ahora →
+          </button>
+        </div>
+      </div>
+
+      <div class="divide-y divide-white/[0.04]">
+        <div class="grid grid-cols-12 gap-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#5E6470]">
+          <div class="col-span-8">PRODUCTO / VARIEDAD</div>
+          <div class="col-span-4 text-right">STOCK DISPONIBLE</div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
+          <div class="col-span-8 font-semibold text-[#EDEDEF]">
+            <span class="stock-id">
+              <span class="sid-prod">Pera Rama</span>
+            </span>
+          </div>
+          <div class="col-span-4 flex items-center justify-end gap-1.5">
+            <div class="stock-stepper">
+            <button type="button" class="stock-step" data-stock-target="stock-pera" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
+            <input id="stock-pera" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
+            <span class="stock-unit">cjs</span>
+            <button type="button" class="stock-step" data-stock-target="stock-pera" data-stock-delta="10" data-stock-max="76" aria-label="Sumar 10 cajas">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
+          <div class="col-span-8 font-semibold text-[#EDEDEF]">
+            <span class="stock-id">
+              <span class="sid-prod">Cocktail Romantico</span>
+              <span class="sid-var is-variety">Consabor</span>
+            </span>
+          </div>
+          <div class="col-span-4 flex items-center justify-end gap-1.5">
+            <div class="stock-stepper">
+            <button type="button" class="stock-step" data-stock-target="stock-cocktail-consabor" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
+            <input id="stock-cocktail-consabor" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
+            <span class="stock-unit">cjs</span>
+            <button type="button" class="stock-step" data-stock-target="stock-cocktail-consabor" data-stock-delta="10" data-stock-max="80" aria-label="Sumar 10 cajas">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
+          <div class="col-span-8 font-semibold text-[#EDEDEF]">
+            <span class="stock-id">
+              <span class="sid-prod">Cocktail Romantico</span>
+              <span class="sid-var is-variety">Sao Paulo</span>
+              <span class="sid-unit">FIFO</span>
+            </span>
+          </div>
+          <div class="col-span-4 flex items-center justify-end gap-1.5">
+            <div class="stock-stepper">
+            <button type="button" class="stock-step" data-stock-target="stock-cocktail-sp" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
+            <input id="stock-cocktail-sp" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
+            <span class="stock-unit">cjs</span>
+            <button type="button" class="stock-step" data-stock-target="stock-cocktail-sp" data-stock-delta="10" data-stock-max="80" aria-label="Sumar 10 cajas">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
+          <div class="col-span-8 font-semibold text-[#EDEDEF]">
+            <span class="stock-id">
+              <span class="sid-prod">Cocktail Romantico</span>
+              <span class="sid-var is-variety">Sunstream</span>
+            </span>
+          </div>
+          <div class="col-span-4 flex items-center justify-end gap-1.5">
+            <div class="stock-stepper">
+            <button type="button" class="stock-step" data-stock-target="stock-cocktail-sun" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
+            <input id="stock-cocktail-sun" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
+            <span class="stock-unit">cjs</span>
+            <button type="button" class="stock-step" data-stock-target="stock-cocktail-sun" data-stock-delta="10" data-stock-max="80" aria-label="Sumar 10 cajas">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
+          <div class="col-span-8 font-semibold text-[#EDEDEF]">
+            <span class="stock-id">
+              <span class="sid-prod">Cherry Rama</span>
+              <span class="sid-var is-variety">Sunstream</span>
+            </span>
+          </div>
+          <div class="col-span-4 flex items-center justify-end gap-1.5">
+            <div class="stock-stepper">
+            <button type="button" class="stock-step" data-stock-target="stock-cherry-sun" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
+            <input id="stock-cherry-sun" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
+            <span class="stock-unit">cjs</span>
+            <button type="button" class="stock-step" data-stock-target="stock-cherry-sun" data-stock-delta="10" data-stock-max="176" aria-label="Sumar 10 cajas">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FASE 18.6 · §4 · PASO 3 del flujo: BLOQUEOS Y EXCEPCIONES.
+           Acceso contextual a los controles de bloqueo que YA existen: el botón
+           llama al MISMO setView('locks') que usa #btn-more-locks, así que no se
+           duplica ni lógica ni handler. Va marcado .mobile-only para no aparecer
+           en Desktop (aquí #stock-section sí se ve en escritorio). -->
+      <div class="wf-step-card mobile-only">
+        <div class="wf-step-head">
+          <span class="wf-step-n">Paso 3</span>
+          <span class="wf-step-t">Bloqueos y excepciones</span>
+        </div>
+        <p class="wf-step-desc">Indica si alguna plataforma, producto o variedad debe quedar restringida.</p>
+        <div class="wf-step-foot">
+          <span class="wf-step-status" id="wf-locks-status">Sin bloqueos ni excepciones</span>
+          <button type="button" id="btn-workflow-locks" class="wf-step-btn">Configurar bloqueos →</button>
+        </div>
+      </div>
+
+      <div class="wf-step-bridge mobile-only">
+        <div class="wf-step-bridge-head">
+          <span class="wf-step-bridge-n">Paso 4</span>
+          <span class="wf-step-bridge-t">Cálculo de Carga Óptima</span>
+        </div>
+        <p class="wf-step-bridge-desc">Combina Previsión + Stock disponible para generar las plataformas y palets.</p>
+      </div>
+
+      <div id="desktop-action-bar-container" class="pt-3 border-t border-[#22252A] space-y-2">
+        <div class="flex items-center justify-between gap-4 flex-wrap text-xs">
+          <div class="flex items-center gap-1.5">
+            <span class="font-bold uppercase tracking-wider text-[#5E6470]">Estado:</span>
+            <span id="plan-action-state-text" class="font-mono text-xs font-semibold text-[#8A8F98]">Listo para calcular</span>
+          </div>
+        </div>
+        <button
+          id="btn-generate-plan"
+          type="button"
+          class="w-full py-3.5 px-6 rounded-md bg-[#EDEDEF] hover:bg-white text-[#0B0C0E] font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-2 active:scale-[0.99] shadow-sm cursor-pointer"
+        >
+          <span>⚡ CALCULAR PLAN DE CARGA DE ESTA ENTREGA →</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         FASE 18 · MOBILE SHELL — VISTA "MÁS" (§7)
+         Accesos a las secciones que no caben en la tabbar inferior y a las
+         salidas operativas. Los botones de exportación de #actions-toolbar
+         se reutilizan por ID (una única fuente de verdad de la acción).
+    ================================================================ -->
+    <section id="mobile-more-section" class="mobile-only">
+      <h2>Más opciones</h2>
+      <div class="mm-context">
+        <span class="mm-chip">Entrega <b id="mm-delivery-date">--/--/----</b></span>
+        <span class="mm-chip"><b id="mm-status">SIN PLAN</b></span>
+      </div>
+      <div class="mm-list">
+        <!-- FASE 18.5.1 · §1: dos grupos visuales. No se mueve ninguna
+             funcionalidad, ni IDs, ni eventos: sólo se rotulan. Este bloque vive
+             dentro de #mobile-more-section, que es .mobile-only, así que Desktop
+             no lo ve. -->
+        <div class="mm-group">Salida</div>
+        <button type="button" class="mm-item" id="btn-more-export-pdf">
+          <span class="mm-left"><span class="mm-ico">🧾</span><span>Generar PDF<span class="mm-sub">Hoja de expedición A4 apaisado</span></span></span>
+          <span class="mm-chev">›</span>
+        </button>
+        <button type="button" class="mm-item" id="btn-more-export-whatsapp">
+          <span class="mm-left"><span class="mm-ico">💬</span><span>Copiar WhatsApp<span class="mm-sub">Mensaje formateado para transportistas</span></span></span>
+          <span class="mm-chev">›</span>
+        </button>
+        <button type="button" class="mm-item" id="btn-more-print">
+          <span class="mm-left"><span class="mm-ico">🖨️</span><span>Imprimir<span class="mm-sub">Abrir vista de impresión del navegador</span></span></span>
+          <span class="mm-chev">›</span>
+        </button>
+        <div class="mm-group">Configuración operativa</div>
+        <button type="button" class="mm-item" id="btn-more-locks">
+          <span class="mm-left"><span class="mm-ico">🔒</span><span>Bloqueos<span class="mm-sub">Asignación fija o completa por plataforma</span></span></span>
+          <span class="mm-chev">›</span>
+        </button>
+        <button type="button" class="mm-item" id="btn-more-options">
+          <span class="mm-left"><span class="mm-ico">⚙️</span><span>Opciones avanzadas<span class="mm-sub">Excepciones de palet, exclusiones y tablas técnicas</span></span></span>
+          <span class="mm-chev">›</span>
+        </button>
+      </div>
+      <div class="mm-sep"></div>
+      <p class="mm-note">
+        El plan móvil consume exactamente el mismo resultado de planificación que la vista de escritorio.
+        Antes de cargar el camión, confirma las cajas asignadas con el albarán físico preparado en almacén.
+      </p>
+    </section>
+    <!-- 5. BLOQUEOS PRIORITARIOS (Interacción Fase 13.1) -->
+    <section id="locks-section" data-view="locks" class="border border-[#22252A] rounded-lg p-5 bg-[#121316] space-y-4">
+      <div class="wf-stage-banner mobile-only">
+        <span class="wf-stage-tag">PASO 3 DE 4</span>
+        <span class="wf-stage-title">Bloqueos y Excepciones (Opcional)</span>
+      </div>
+      <div class="flex items-center justify-between border-b border-[#22252A] pb-2">
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#EDEDEF]">Bloqueos de Asignación (Locks)</h3>
+          <p class="text-xs text-[#8A8F98]">Garantiza asignación fija o completa para plataformas prioritarias</p>
+        </div>
+        <span class="text-[11px] font-mono text-[#5E6470]">Prioridad Operativa</span>
+      </div>
+
+      <!-- Paso 1: Seleccionar Plataforma -->
+      <div>
+        <label class="block text-[10px] font-semibold text-[#5E6470] uppercase tracking-wider mb-1.5">1. Selecciona Plataforma:</label>
+        <div id="lock-platform-pills" class="flex flex-wrap gap-1.5"></div>
+      </div>
+
+      <!-- Paso 2: Acciones Directas -->
+      <div id="lock-actions-container" class="space-y-2 pt-2 border-t border-white/[0.04]">
+        <label class="block text-[10px] font-semibold text-[#5E6470] uppercase tracking-wider">
+          2. Asignación completa para <strong id="lock-selected-platform-label" class="text-white">CENTRO</strong>:
+        </label>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <button type="button" id="btn-lock-pera" class="btn-lock-action p-2 rounded border border-[#22252A] hover:border-[#383D45] bg-[#16181B] text-xs font-semibold text-[#EDEDEF] transition-colors text-left flex items-center justify-between">
+            <span>Pera Rama</span>
+            <span class="text-[9px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-1 py-0.5 rounded">COMPLETA</span>
+          </button>
+          <button type="button" id="btn-lock-cocktail-consabor" class="btn-lock-action p-2 rounded border border-[#22252A] hover:border-[#383D45] bg-[#16181B] text-xs font-semibold text-[#EDEDEF] transition-colors text-left flex items-center justify-between">
+            <span>Cocktail Cons.</span>
+            <span class="text-[9px] font-bold text-teal-400 bg-teal-950/60 border border-teal-800/60 px-1 py-0.5 rounded">COMPLETO</span>
+          </button>
+          <button type="button" id="btn-lock-cocktail-sp" class="btn-lock-action p-2 rounded border border-[#22252A] hover:border-[#383D45] bg-[#16181B] text-xs font-semibold text-[#EDEDEF] transition-colors text-left flex items-center justify-between">
+            <span>Cocktail SP</span>
+            <span class="text-[9px] font-bold text-blue-400 bg-blue-950/60 border border-blue-800/60 px-1 py-0.5 rounded">COMPLETO</span>
+          </button>
+          <button type="button" id="btn-lock-cocktail-sun" class="btn-lock-action p-2 rounded border border-[#22252A] hover:border-[#383D45] bg-[#16181B] text-xs font-semibold text-[#EDEDEF] transition-colors text-left flex items-center justify-between">
+            <span>Cocktail Sun.</span>
+            <span class="text-[9px] font-bold text-amber-400 bg-amber-950/60 border border-amber-800/60 px-1 py-0.5 rounded">COMPLETO</span>
+          </button>
+          <button type="button" id="btn-lock-cherry" class="btn-lock-action p-2 rounded border border-[#22252A] hover:border-[#383D45] bg-[#16181B] text-xs font-semibold text-[#EDEDEF] transition-colors text-left flex items-center justify-between">
+            <span>Cherry Rama</span>
+            <span class="text-[9px] font-bold text-purple-400 bg-purple-950/60 border border-purple-800/60 px-1 py-0.5 rounded">COMPLETO</span>
+          </button>
+        </div>
+
+        <!-- Acción secundaria: Fijar cantidad específica -->
+        <details class="text-xs text-[#5E6470] pt-1 group">
+          <summary class="cursor-pointer font-medium hover:text-[#8A8F98] select-none py-1 flex items-center gap-1.5 text-xs">
+            <span>Fijar cantidad específica (bloqueo parcial)</span>
+            <span class="text-[#5E6470] group-open:rotate-180 transition-transform">▾</span>
+          </summary>
+          <div class="pt-2 flex items-center gap-2 max-w-md">
+            <select id="lock-fixed-product" class="p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded text-xs text-[#EDEDEF] flex-1 focus:border-[#EDEDEF] focus:outline-none">
+              <option value="PERA_RAMA">Pera Rama</option>
+              <option value="COCKTAIL_ROMANTICO">Cocktail Romántico</option>
+              <option value="CHERRY_RAMA">Cherry Rama</option>
+            </select>
+            <input id="lock-qty" type="number" min="1" placeholder="Nº cjs" class="w-24 p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded font-mono text-xs text-white focus:border-[#EDEDEF] focus:outline-none" />
+            <button id="btn-add-fixed-lock" type="button" class="px-3 py-1.5 rounded bg-[#EDEDEF] hover:bg-white text-[#0B0C0E] font-semibold text-xs transition-colors shrink-0">
+              Fijar
+            </button>
+          </div>
+        </details>
+      </div>
+
+      <!-- Feedback de conflicto de bloqueo -->
+      <div id="lock-conflict-msg" class="hidden p-2 rounded bg-amber-950/30 border border-amber-800/50 text-amber-200 text-xs font-semibold flex items-center gap-2">
+        <span>⚠</span>
+        <span>Esta asignación ya está bloqueada de otra forma.</span>
+      </div>
+
+      <!-- Controles legacy ocultos para compatibilidad 100% -->
+      <div class="hidden">
+        <select id="lock-platform"></select>
+        <select id="lock-product"></select>
+        <select id="lock-type"><option value="FULL">FULL</option><option value="FIXED">FIXED</option></select>
+        <div id="lock-qty-container"></div>
+        <button id="btn-add-lock" type="button"></button>
+      </div>
+
+      <!-- Locks Activos -->
+      <div class="pt-2 border-t border-white/[0.04]">
+        <span class="text-[10px] font-semibold text-[#5E6470] uppercase tracking-wider block mb-1">Bloqueos Activos:</span>
+        <div id="active-locks-list" class="flex flex-wrap gap-1.5">
+          <p class="text-xs text-[#5E6470] italic w-full">No hay bloqueos activos.</p>
+        </div>
+      </div>
+
+      <div class="mobile-only pt-3">
+        <button id="btn-locks-to-stock" type="button" class="wf-next-btn">
+          <span>← Volver a Stock y Generar Plan</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- 6. OPCIONES AVANZADAS Y TABLAS TÉCNICAS (Colapsables) -->
+    <section id="options-section" data-view="options" class="space-y-3">
+      <!-- Excepciones de Palet y Exclusiones Manuales -->
+      <details class="no-print border border-[#22252A] rounded-lg p-4 bg-[#121316] text-xs group text-[#EDEDEF]">
+        <summary class="cursor-pointer font-bold uppercase tracking-wider text-[#8A8F98] hover:text-[#EDEDEF] select-none flex items-center justify-between transition-colors">
+          <span>Opciones Avanzadas (Excepciones y Exclusiones)</span>
+          <span class="text-[#5E6470] group-open:rotate-180 transition-transform">▾</span>
+        </summary>
+        <div class="pt-4 border-t border-white/[0.06] space-y-4 mt-3">
+          <!-- Pallet Overrides -->
+          <div class="space-y-2">
+            <span class="font-bold text-[#EDEDEF] uppercase text-[11px] block">Excepciones de Formato de Palet</span>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div>
+                <label for="override-pallet-platform" class="block text-[10px] font-medium text-[#8A8F98] mb-0.5">Plataforma</label>
+                <select id="override-pallet-platform" class="w-full p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded text-xs text-[#EDEDEF] focus:border-[#EDEDEF] focus:outline-none"></select>
+              </div>
+              <div>
+                <label for="override-pallet-product" class="block text-[10px] font-medium text-[#8A8F98] mb-0.5">Producto</label>
+                <select id="override-pallet-product" class="w-full p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded text-xs text-[#EDEDEF] focus:border-[#EDEDEF] focus:outline-none"></select>
+              </div>
+              <div>
+                <label for="override-pallet-type" class="block text-[10px] font-medium text-[#8A8F98] mb-0.5">Formato</label>
+                <select id="override-pallet-type" class="w-full p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded text-xs text-[#EDEDEF] focus:border-[#EDEDEF] focus:outline-none">
+                  <option value="EURO">EURO (Estándar)</option>
+                  <option value="METROCHEP">METROCHEP (Grande)</option>
+                </select>
+              </div>
+            </div>
+            <button id="btn-add-pallet-override" type="button" class="py-1 px-2.5 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] font-semibold text-xs transition-colors">
+              + Añadir Excepción de Palet
+            </button>
+            <div id="active-pallet-overrides-list" class="space-y-1 pt-1"></div>
+          </div>
+
+          <!-- Exclusiones Manuales -->
+          <div class="space-y-2 pt-3 border-t border-white/[0.06]">
+            <span class="font-bold text-[#EDEDEF] uppercase text-[11px] block">Exclusiones Operativas</span>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label for="exclusion-type" class="block text-[10px] font-medium text-[#8A8F98] mb-0.5">Tipo</label>
+                <select id="exclusion-type" class="w-full p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded text-xs text-[#EDEDEF] focus:border-[#EDEDEF] focus:outline-none">
+                  <option value="PRODUCT">Por Producto</option>
+                  <option value="PLATFORM">Por Plataforma</option>
+                  <option value="LINE">Por Nº Línea</option>
+                </select>
+              </div>
+              <div id="box-excl-product">
+                <label for="exclusion-product-val" class="block text-[10px] font-medium text-[#8A8F98] mb-0.5">Producto</label>
+                <select id="exclusion-product-val" class="w-full p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded text-xs text-[#EDEDEF] focus:border-[#EDEDEF] focus:outline-none"></select>
+              </div>
+              <div id="box-excl-platform" class="hidden">
+                <label for="exclusion-platform-val" class="block text-[10px] font-medium text-[#8A8F98] mb-0.5">Plataforma</label>
+                <select id="exclusion-platform-val" class="w-full p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded text-xs text-[#EDEDEF] focus:border-[#EDEDEF] focus:outline-none"></select>
+              </div>
+              <div id="box-excl-line" class="hidden">
+                <label for="exclusion-line-val" class="block text-[10px] font-medium text-[#8A8F98] mb-0.5">Nº Línea</label>
+                <input id="exclusion-line-val" type="number" min="1" placeholder="Ej: 3" class="w-full p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded font-mono text-xs text-white focus:border-[#EDEDEF] focus:outline-none" />
+              </div>
+            </div>
+            <div>
+              <label for="exclusion-reason" class="block text-[10px] font-medium text-[#8A8F98] mb-0.5">Motivo</label>
+              <input id="exclusion-reason" type="text" placeholder="Ej: Falta de stock" class="w-full p-1.5 bg-[#0B0C0E] border border-[#22252A] rounded text-xs text-white focus:border-[#EDEDEF] focus:outline-none" />
+            </div>
+            <button id="btn-add-exclusion" type="button" class="py-1 px-2.5 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] font-semibold text-xs transition-colors">
+              + Añadir Exclusión
+            </button>
+            <div id="active-exclusions-list" class="space-y-1 pt-1"></div>
+          </div>
+        </div>
+      </details>
+
+      <!-- Variaciones respecto al Plan Anterior (Fase 10.1) -->
+      <details id="plan-comparison-section" class="no-print hidden border border-[#22252A] rounded-lg p-4 bg-[#121316] text-xs group text-[#EDEDEF]">
+        <summary class="cursor-pointer font-bold uppercase tracking-wider text-[#8A8F98] hover:text-[#EDEDEF] select-none flex items-center justify-between transition-colors">
+          <span>Variaciones respecto al Plan Anterior</span>
+          <span class="text-[#5E6470] group-open:rotate-180 transition-transform">▾</span>
+        </summary>
+        <div id="plan-comparison-content" class="pt-3 border-t border-white/[0.06] space-y-2 mt-2"></div>
+      </details>
+
+      <!-- Tabla Técnica Matricial (Colapsable) -->
+      <details class="no-print border border-[#22252A] rounded-lg p-4 bg-[#121316] text-xs group text-[#EDEDEF]">
+        <summary class="cursor-pointer font-bold uppercase tracking-wider text-[#8A8F98] hover:text-[#EDEDEF] select-none flex items-center justify-between transition-colors">
+          <span>Ver Tabla Técnica Matricial de Asignaciones</span>
+          <span class="text-[#5E6470] group-open:rotate-180 transition-transform">▾</span>
+        </summary>
+        <div class="overflow-x-auto border-t border-white/[0.06] pt-3 mt-2">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-[#0B0C0E] text-[#8A8F98] border-b border-[#22252A] font-semibold uppercase text-[10px] tracking-wider">
+              <tr>
+                <th class="py-2 px-3">Plataforma</th>
+                <th class="py-2 px-2">Producto</th>
+                <th class="py-2 px-2">Variedad</th>
+                <th class="py-2 px-2 text-right">Demandadas</th>
+                <th class="py-2 px-2 text-right">Asignadas</th>
+                <th class="py-2 px-2 text-right">Pendientes</th>
+                <th class="py-2 px-2 text-center">Palet</th>
+                <th class="py-2 px-3 text-center">Método</th>
+              </tr>
+            </thead>
+            <tbody id="table-platform-allocations-body" class="divide-y divide-white/[0.03] font-normal">
+              <tr>
+                <td colspan="8" class="py-6 text-center text-[#5E6470] italic">
+                  Genera el plan de carga para ver la matriz de reparto.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- Desglose de Palets Físicos (Colapsable) -->
+      <details class="no-print border border-[#22252A] rounded-lg p-4 bg-[#121316] text-xs group text-[#EDEDEF]">
+        <summary class="cursor-pointer font-bold uppercase tracking-wider text-[#8A8F98] hover:text-[#EDEDEF] select-none flex items-center justify-between transition-colors">
+          <span>Ver Desglose Plano de Grupos de Paletización</span>
+          <span class="text-[#5E6470] group-open:rotate-180 transition-transform">▾</span>
+        </summary>
+        <div id="palletization-groups-container" class="p-3 border-t border-white/[0.06] space-y-3 mt-2">
+          <div class="p-3 text-center text-[#5E6470] italic text-xs">
+            Los grupos calculados aparecerán aquí tras generar el plan.
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- 7. ACCIONES DE SALIDA (TOOLBAR OPERATIVO) -->
+    <section id="actions-toolbar" data-view="more" class="hidden border border-[#22252A] rounded-lg p-4 bg-[#121316]">
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]"></span>
+          <div>
+            <h2 class="text-xs font-bold uppercase tracking-wider text-[#EDEDEF]">Plan Preparado</h2>
+            <p class="text-[11px] text-[#8A8F98]">Exportar y comunicar a transportistas y muelle</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <button
+            id="btn-export-whatsapp"
+            type="button"
+            class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] font-bold text-xs transition-all active:scale-[0.98]"
+            title="Copiar texto formateado para enviar por WhatsApp"
+          >
+            <span>Copiar WhatsApp</span>
+          </button>
+          <button
+            id="btn-export-pdf"
+            type="button"
+            class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-[#EDEDEF] hover:bg-white text-[#0B0C0E] font-bold text-xs transition-all active:scale-[0.98] shadow-sm"
+            title="Descargar informe formal de carga en formato PDF"
+          >
+            <span>Generar PDF</span>
+          </button>
+          <button
+            id="btn-print-plan"
+            type="button"
+            class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] font-bold text-xs transition-all active:scale-[0.98]"
+            title="Imprimir hoja de expedición en tamaño A4"
+          >
+            <span>Imprimir</span>
+          </button>
+        </div>
+      </div>
+      <div id="toast-action-feedback" class="hidden mt-2 p-2 rounded bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs font-semibold text-center"></div>
+    </section>
+
+
+    <!-- ================================================================
+         FASE 18 · MOBILE SHELL — DETALLE DE PLATAFORMA (§9)
+         Contenido volcado por UIController.renderPlatformDetail() usando
+         exclusivamente buildTruckSlotsModel(PlanningResult). No recalcula nada.
+    ================================================================ -->
+    <div id="platform-detail-modal" class="platform-detail-modal mobile-only" hidden role="dialog" aria-modal="true" aria-labelledby="pdm-platform-name">
+      <div class="pdm-head">
+        <div class="pdm-title">
+          <span class="pdm-kicker">Plataforma</span>
+          <span class="pdm-name" id="pdm-platform-name">--</span>
+        </div>
+        <button type="button" class="pdm-close" id="pdm-close" aria-label="Cerrar detalle">✕</button>
+      </div>
+      <div class="pdm-body" id="pdm-body"></div>
+    </div>
+
+    <!-- Modal: Añadir Pedido Anticipado / Manual -->
+    <div id="modal-add-order" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="modal-add-order-title" hidden>
+      <div class="bg-[#121316] border border-[#22252A] rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl text-[#EDEDEF]">
+        <div class="flex items-center justify-between border-b border-[#22252A] pb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            <h3 id="modal-add-order-title" class="text-sm font-bold uppercase tracking-wider text-white">Añadir Pedido Anticipado</h3>
+          </div>
+          <button id="btn-close-add-order" type="button" class="text-[#8A8F98] hover:text-white p-1 text-lg leading-none" aria-label="Cerrar modal">✕</button>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label for="order-platform" class="block font-semibold text-[#8A8F98] mb-1">Plataforma / Destino</label>
+            <input
+              id="order-platform"
+              type="text"
+              placeholder="Ej. CENTRO, LEVANTE, SUR..."
+              class="w-full p-2.5 rounded bg-[#0B0C0E] border border-[#22252A] text-xs font-mono font-bold text-white focus:outline-none focus:border-white"
+            />
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label for="order-product" class="block font-semibold text-[#8A8F98] mb-1">Producto</label>
+              <select id="order-product" class="w-full p-2.5 rounded bg-[#0B0C0E] border border-[#22252A] text-xs text-white">
+                <option value="PERA_RAMA">Pera Rama</option>
+                <option value="COCKTAIL_ROMANTICO">Cocktail Romántico</option>
+                <option value="CHERRY_RAMA">Cherry Rama</option>
+              </select>
+            </div>
+            <div>
+              <label for="order-variety" class="block font-semibold text-[#8A8F98] mb-1">Variedad (Opcional)</label>
+              <select id="order-variety" class="w-full p-2.5 rounded bg-[#0B0C0E] border border-[#22252A] text-xs text-white">
+                <option value="">(Ninguna / Específica)</option>
+                <option value="CONSABOR">Consabor</option>
+                <option value="SAO_PAULO">Sao Paulo</option>
+                <option value="SUNSTREAM">Sunstream</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label for="order-boxes" class="block font-semibold text-[#8A8F98] mb-1">Cantidad (Cajas)</label>
+              <input
+                id="order-boxes"
+                type="number"
+                min="1"
+                placeholder="Ej. 40"
+                class="w-full p-2.5 rounded bg-[#0B0C0E] border border-[#22252A] text-xs font-mono font-bold text-white text-right focus:outline-none focus:border-white"
+              />
+            </div>
+            <div>
+              <label for="order-delivery-date" class="block font-semibold text-[#8A8F98] mb-1">Fecha Entrega</label>
+              <input
+                id="order-delivery-date"
+                type="text"
+                placeholder="DD/MM/YYYY"
+                class="w-full p-2.5 rounded bg-[#0B0C0E] border border-[#22252A] text-xs font-mono text-white focus:outline-none focus:border-white"
+              />
+            </div>
+          </div>
+
+          <div id="order-form-error" class="hidden p-2 rounded bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs font-medium"></div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-[#22252A]">
+          <button id="btn-save-order" type="button" class="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs tracking-wide transition-all shadow-sm">
+            Guardar Pedido Anticipado
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Dividir Pedido en Sub-pedidos -->
+    <div id="modal-split-order" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="modal-split-order-title" hidden>
+      <div class="bg-[#121316] border border-[#22252A] rounded-xl max-w-lg w-full p-5 space-y-4 shadow-2xl text-[#EDEDEF]">
+        <div class="flex items-center justify-between border-b border-[#22252A] pb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+            <h3 id="modal-split-order-title" class="text-sm font-bold uppercase tracking-wider text-white">Dividir Pedido</h3>
+          </div>
+          <button id="btn-close-split-order" type="button" class="text-[#8A8F98] hover:text-white p-1 text-lg leading-none" aria-label="Cerrar modal">✕</button>
+        </div>
+
+        <div id="split-parent-info"></div>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-[#8A8F98] uppercase tracking-wider">Sub-pedidos Resultantes:</span>
+            <button id="btn-add-split-row" type="button" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300">+ Añadir otro</button>
+          </div>
+          <div id="split-rows-container" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-[#22252A]">
+          <div id="split-sum-info" class="text-xs font-semibold text-[#8A8F98]">Suma: 0 / 0 cjs</div>
+          <div id="split-form-error" class="hidden text-xs text-rose-400 font-medium"></div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button id="btn-cancel-split-order" type="button" class="px-3 py-2 rounded-md bg-[#16181B] hover:bg-[#1D2024] text-[#8A8F98] hover:text-white font-medium text-xs border border-[#22252A] transition-all cursor-pointer">
+            Cancelar
+          </button>
+          <button id="btn-confirm-split" type="button" class="px-4 py-2 rounded-md bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs tracking-wide transition-all shadow-sm cursor-pointer">
+            Confirmar División
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+  <!-- ================================================================
+       FASE 18 · MOBILE SHELL — NAVEGACIÓN INFERIOR FIJA (§7)
+       Conmuta únicamente la visibilidad de las vistas (main[data-view]).
+       No recalcula ni vuelve a renderizar el plan.
+  ================================================================ -->
+  <nav id="mobile-tabbar" class="mobile-only" aria-label="Navegación principal">
+    <button type="button" class="mt-tab" data-nav-view="forecast" aria-current="page">
+      <span class="mt-ico" aria-hidden="true">📋</span>
+      <span>Previsión</span>
+      <span class="mt-badge" id="mt-badge-forecast" hidden>0</span>
+    </button>
+    <button type="button" class="mt-tab" data-nav-view="stock">
+      <span class="mt-ico" aria-hidden="true">📦</span>
+      <span>Stock</span>
+    </button>
+    <button type="button" class="mt-tab" data-nav-view="plan">
+      <span class="mt-ico" aria-hidden="true">🚚</span>
+      <span>Plan</span>
+      <span class="mt-badge" id="mt-badge-plan" hidden>0</span>
+    </button>
+    <button type="button" class="mt-tab" data-nav-view="more">
+      <span class="mt-ico" aria-hidden="true">⋯</span>
+      <span>Más</span>
+    </button>
+  </nav>
+
+  <!-- FOOTER COMPACTO -->
+  <footer class="desktop-only bg-[#0B0C0E] border-t border-[#22252A] py-3 mt-auto">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 flex items-center justify-between text-[11px] text-[#5E6470]">
+      <span class="font-medium text-[#8A8F98]">Planificador de Carga · Hub Logístico</span>
+      <span class="font-mono">RC3.1</span>
+    </div>
+  </footer>
+
+  <!-- Carga de Módulos UMD del Motor Logístico en Orden Estricto de Dependencia -->
+  <script><?!= include('SRC_catalog_js.html'); ?></script>
+  <script><?!= include('SRC_parser_js.html'); ?></script>
+  <script><?!= include('SRC_hamilton_js.html'); ?></script>
+  <script><?!= include('SRC_cocktail_solver_js.html'); ?></script>
+  <script><?!= include('SRC_palletizer_js.html'); ?></script>
+  <script><?!= include('SRC_orchestrator_js.html'); ?></script>
+  <script><?!= include('SRC_ui_js.html'); ?></script>
+
+</body>
+</html>

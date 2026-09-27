@@ -1,0 +1,2217 @@
+/* ============================================================================
+   PHASE 18 — MOBILE SHELL
+   Planificador de Carga · base RC3.1 · copia de trabajo v1.0.0-RC3.1
+
+   Este archivo es EXCLUSIVAMENTE capa de presentación para el shell móvil.
+   No contiene ninguna regla de negocio: consume los mismos elementos del DOM
+   que rellena UIController (AppState / planLoad / PlanningResult).
+
+   Alcance:
+     - Todas las reglas están dentro de @media (max-width: 1023.98px)
+       -> Desktop (>= 1024px) NO se ve afectado por este archivo.
+     - Colores: se reutilizan los design tokens de :root / html[data-theme]
+       definidos en index.html (dark por defecto, light existente).
+       No se crea un tercer tema.
+   ========================================================================= */
+
+/* =========================================================================
+   0. UTILIDADES
+   ========================================================================= */
+
+:root {
+  /* --- Objetivos táctiles (HIG/Material: 44 mínimo, 48–52 recomendado) --- */
+  --m-touch: 44px;      /* objetivo táctil mínimo */
+  --m-touch-lg: 52px;   /* acción primaria / inputs de operación */
+
+  /* --- Navegación inferior (altura propia, excluye safe-area) --- */
+  --m-nav-h: 68px;
+
+  /* --- Contenedores y ritmo vertical -------------------------------------
+     Mobile NO es Desktop comprimido: la densidad baja y el aire sube.
+     Card 16px · ritmo 12px · radio 12px (Desktop mantiene los suyos). */
+  --m-pad-card: 16px;
+  --m-pad-x: 14px;
+  --m-gap: 12px;
+  --m-radius: 12px;
+  --m-radius-sm: 10px;
+
+  /* --- Escala tipográfica móvil ------------------------------------------
+     Referencia de la escala (se aplica en px literal en cada componente):
+       display 22px · h1 19px · h2 16px · body 15px · sm 13px · label 11px
+     SUELO DE LEGIBILIDAD: 11px. Nada operativo por debajo.
+     Inputs a 16px: por debajo, iOS Safari hace auto-zoom al enfocar. */
+}
+
+/* Modo móvil: nada puede generar scroll horizontal (FASE 18 §17/§19) */
+@media (max-width: 1023.98px) {
+  html { overflow-x: hidden; }
+  html, body {
+    max-width: 100%;
+    overscroll-behavior-y: none;
+  }
+}
+
+/* =========================================================================
+   1. SHELL MÓVIL
+   ========================================================================= */
+@media (max-width: 1023.98px) {
+
+  /* --- Elementos exclusivos del shell móvil (ocultos en escritorio) -------
+     Nota: .mobile-only NO se declara display:none aquí porque pisaría el
+     display:block de #mobile-kpi-summary (misma especificidad, orden posterior). */
+  #mobile-header,
+  #mobile-tabbar,
+  #mobile-kpi-summary,
+  .platform-detail-modal { display: block; }
+
+  /* --- Elementos de escritorio que el shell móvil no usa ----------------- */
+  #executive-summary-section { display: none !important; }
+  #print-doc-header          { display: none !important; }
+  body > footer              { display: none !important; }
+  .desktop-only              { display: none !important; }
+
+  /* --- Reset de contenedores -------------------------------------------- */
+  main {
+    padding: 12px var(--m-pad-x) 0 var(--m-pad-x) !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    display: block !important;
+    /* espacio para la tabbar fija (--m-nav-h = 68px) + safe-area */
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  #results-column {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  section,
+  details,
+  .digital-loading-card {
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+
+  /* =======================================================================
+     1.1 HEADER COMPACTO (§6)
+     ======================================================================= */
+  #mobile-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    padding-top: env(safe-area-inset-top, 0px);
+    background-color: color-mix(in srgb, var(--clr-bg) 94%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--clr-border);
+  }
+
+  #mobile-header .mh-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 58px;
+    padding: 6px var(--m-pad-x);
+  }
+
+  #mobile-header .mh-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  #mobile-header .mh-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: #10b981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+    flex: none;
+  }
+
+  /* Nombre de la aplicación: sentence case, NO uppercase diminuto.
+     "PLANIFICADOR DE CARGA" en mayúsculas a 11px era el principal
+     responsable de la sensación de interfaz microscópica. */
+  #mobile-header .mh-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-transform: none;
+    color: var(--clr-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  /* FASE 18.4 · §3. En teléfono no cabe "Planificador de Carga" junto a la
+     fecha, el estado, el badge y el botón de tema de 44px: se cortaba como
+     "Planificador de Ca…", que es justo lo que no debe pasar. El nombre
+     completo vive en el span, que se oculta solo en teléfono y vuelve a
+     mostrarse en el tramo tablet (ver sección 2), donde sí hay sitio. */
+  #mobile-header .mh-title-rest { display: none; }
+
+  /* Badge de versión del header: chip sobrio, no texto suelto */
+  #mobile-header .mh-left > span:not(.mh-dot) {
+    flex: none;
+    font-size: 11px !important;
+    padding: 3px 7px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-weight: 600 !important;
+    border-radius: 6px !important;
+    border: 1px solid var(--clr-border) !important;
+    background: var(--clr-surface2) !important;
+    color: var(--clr-text-muted) !important;
+  }
+
+  #mobile-header .mh-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+
+  #mobile-header #badge-delivery-date {
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--clr-text-secondary);
+    white-space: nowrap;
+  }
+
+  /* Estado del plan: pill de estado, legible y comparable con la fecha */
+  #mobile-header #badge-plan-status {
+    font-size: 11px !important;
+    padding: 3px 8px !important;
+    max-width: 96px;
+    border-radius: 6px !important;
+    border: 1px solid var(--clr-border) !important;
+    background: var(--clr-surface2) !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #mobile-header #badge-plan-sync {
+    font-size: 11px !important;
+    padding: 3px 8px !important;
+    max-width: 136px;
+    border-radius: 6px !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #mobile-header #btn-theme-toggle {
+    width: var(--m-touch);
+    height: var(--m-touch);
+    flex: none;
+    font-size: 19px;
+  }
+
+  /* =======================================================================
+     1.2 RESUMEN COMPACTO (§5)
+     CAJAS · ASIGNADAS · PENDIENTES · PLATAFORMAS · PALETS · TORRES
+     ======================================================================= */
+  #mobile-kpi-summary {
+    margin: 12px 0 14px 0;
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius);
+    background: var(--clr-card);
+    overflow: hidden;
+  }
+
+  #mobile-kpi-summary.is-preplan {
+    margin: 4px 0 10px 0;
+  }
+  #mobile-kpi-summary.is-preplan .mk-grid {
+    display: none !important;
+  }
+  #mobile-kpi-summary.is-preplan .mk-foot {
+    border-top: none;
+    padding: 8px 12px;
+  }
+  #mobile-kpi-summary.has-plan .mk-grid {
+    display: grid;
+  }
+
+  #mobile-kpi-summary .mk-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #mobile-kpi-summary .mk-cell {
+    padding: 11px 6px 9px 6px;
+    text-align: center;
+    border-right: 1px solid var(--clr-border);
+    border-bottom: 1px solid var(--clr-border);
+    min-width: 0;
+  }
+  #mobile-kpi-summary .mk-cell:nth-child(3n)    { border-right: 0; }
+  #mobile-kpi-summary .mk-cell:nth-child(n + 4) { border-bottom: 0; }
+
+  /* El número domina; la etiqueta acompaña. Peso 700 en vez de 800 y etiqueta
+     en 500: la jerarquía la marca el contraste, no el bold generalizado. */
+  #mobile-kpi-summary .mk-value {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 24px;
+    line-height: 1.05;
+    font-weight: 700;
+    color: var(--clr-text-primary);
+    letter-spacing: -0.03em;
+  }
+
+  #mobile-kpi-summary .mk-label {
+    display: block;
+    margin-top: 5px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--clr-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #mobile-kpi-summary .mk-cell.is-pending .mk-value { color: #fbbf24; }
+  #mobile-kpi-summary .mk-cell.is-pending.is-zero .mk-value { color: var(--clr-text-muted); }
+  #mobile-kpi-summary .mk-cell.is-assigned .mk-value { color: #34d399; }
+
+  html[data-theme="light"] #mobile-kpi-summary .mk-cell.is-pending .mk-value { color: #92400E; }
+  html[data-theme="light"] #mobile-kpi-summary .mk-cell.is-assigned .mk-value { color: #047857; }
+
+  #mobile-kpi-summary .mk-foot {
+    border-top: 1px solid var(--clr-border);
+    padding: 9px 12px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--clr-text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+
+  /* =======================================================================
+     FASE 18.5 · FLUJO OPERATIVO (guía visual, nunca bloqueo)
+     PREVISIÓN → STOCK → PLAN → SALIDA
+     El estado (✓ hecho / → siguiente / · pendiente) lo pone ui.js a partir del
+     AppState existente: aquí sólo se presenta.
+     ======================================================================= */
+  #mobile-kpi-summary .wf-track {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  #mobile-kpi-summary .wf-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--clr-text-muted);
+  }
+  #mobile-kpi-summary .wf-step i { font-style: normal; font-size: 11px; line-height: 1; }
+  #mobile-kpi-summary .wf-step.is-done { color: #34d399; }
+  #mobile-kpi-summary .wf-step.is-next { color: var(--clr-text-primary); font-weight: 700; }
+  #mobile-kpi-summary .wf-step.is-pending { color: var(--clr-text-muted); opacity: 0.65; }
+  #mobile-kpi-summary .wf-step.is-warn { color: #fbbf24; }
+  #mobile-kpi-summary .wf-sep {
+    flex: none;
+    width: 9px;
+    height: 1px;
+    background: var(--clr-border-active);
+  }
+  #mobile-kpi-summary .wf-detail {
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--clr-text-muted);
+    text-align: center;
+    white-space: normal;
+  }
+  html[data-theme="light"] #mobile-kpi-summary .wf-step.is-done { color: #047857; }
+  html[data-theme="light"] #mobile-kpi-summary .wf-step.is-warn { color: #92400E; }
+
+  /* Kickers sustituidos por banners estructurados (.wf-stage-banner) */
+  #prevision-section::before,
+  #stock-section::before,
+  #results-column::before,
+  #mobile-more-section::before {
+    display: none !important;
+    content: none !important;
+  }
+
+  /* =======================================================================
+     FASE MOBILE V1 · STEPPER WORKFLOW PRINCIPAL
+     La columna vertebral de la UX móvil. 4 etapas de navegación directa:
+     1. Previsión  2. Stock  3. Bloqueos  4. Plan (+ Salida posterior)
+     ======================================================================= */
+  #mobile-workflow-bar {
+    display: block !important;
+    margin: 0 0 12px 0;
+    padding: 8px 8px;
+    background: var(--clr-card);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+
+  #mobile-workflow-bar .mwb-track {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    width: 100%;
+  }
+
+  #mobile-workflow-bar .mwb-step {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 6px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  #mobile-workflow-bar .mwb-num {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 800;
+    background: #1D2024;
+    color: var(--clr-text-muted);
+    border: 1px solid var(--clr-border);
+    transition: all 0.15s ease;
+  }
+
+  #mobile-workflow-bar .mwb-body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  #mobile-workflow-bar .mwb-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--clr-text-muted);
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #mobile-workflow-bar .mwb-sub {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--clr-text-muted);
+    opacity: 0.7;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Estados del Stepper */
+  #mobile-workflow-bar .mwb-step.is-active {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  #mobile-workflow-bar .mwb-step.is-active .mwb-label {
+    color: var(--clr-text-primary);
+    font-weight: 800;
+  }
+  #mobile-workflow-bar .mwb-step.is-active .mwb-num {
+    background: var(--clr-text-primary);
+    color: #0B0C0E;
+    border-color: var(--clr-text-primary);
+  }
+
+  #mobile-workflow-bar .mwb-step.is-done .mwb-num {
+    background: #065f46;
+    color: #34d399;
+    border-color: #059669;
+  }
+  #mobile-workflow-bar .mwb-step.is-done .mwb-label {
+    color: #34d399;
+  }
+  #mobile-workflow-bar .mwb-step.is-done .mwb-sub {
+    color: #a7f3d0;
+    opacity: 0.9;
+  }
+
+  #mobile-workflow-bar .mwb-step.is-next .mwb-num {
+    border-color: var(--clr-text-primary);
+    color: var(--clr-text-primary);
+  }
+  #mobile-workflow-bar .mwb-step.is-next .mwb-label {
+    color: var(--clr-text-primary);
+  }
+
+  #mobile-workflow-bar .mwb-sep {
+    flex: none;
+    width: 6px;
+    height: 1px;
+    background: var(--clr-border);
+  }
+
+  /* Modo Claro Stepper */
+  html[data-theme="light"] #mobile-workflow-bar .mwb-step.is-active .mwb-num {
+    background: #111827;
+    color: #ffffff;
+  }
+  html[data-theme="light"] #mobile-workflow-bar .mwb-step.is-done .mwb-num {
+    background: #d1fae5;
+    color: #047857;
+    border-color: #10b981;
+  }
+  html[data-theme="light"] #mobile-workflow-bar .mwb-step.is-done .mwb-label {
+    color: #047857;
+  }
+
+  /* Refuerzo para 320px */
+  @media (max-width: 350px) {
+    #mobile-workflow-bar {
+      padding: 6px 4px;
+    }
+    #mobile-workflow-bar .mwb-track {
+      gap: 2px;
+    }
+    #mobile-workflow-bar .mwb-step {
+      padding: 4px 3px;
+      gap: 4px;
+      min-height: 44px;
+    }
+    #mobile-workflow-bar .mwb-num {
+      width: 20px;
+      height: 20px;
+      font-size: 11px;
+    }
+    #mobile-workflow-bar .mwb-label {
+      font-size: 11px;
+    }
+    #mobile-workflow-bar .mwb-sub {
+      display: none;
+    }
+    #mobile-workflow-bar .mwb-sep {
+      width: 4px;
+    }
+  }
+
+  /* Banners de etapa */
+  .wf-stage-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid #383D45;
+  }
+  .wf-stage-tag {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--clr-text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .wf-stage-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--clr-text-primary);
+  }
+
+  /* Botón de Siguiente Acción Recomendada */
+  .wf-next-btn {
+    width: 100%;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    background: #EDEDEF;
+    color: #0B0C0E;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    transition: all 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .wf-next-btn:active {
+    transform: scale(0.98);
+    background: #ffffff;
+  }
+  html[data-theme="light"] .wf-next-btn {
+    background: #111827;
+    color: #ffffff;
+  }
+
+  /* Bloque puente de cálculo de carga */
+  .wf-step-bridge {
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius);
+    margin-bottom: 8px;
+  }
+  .wf-step-bridge-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+  }
+  .wf-step-bridge-n {
+    font-size: 11px;
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--clr-text-primary);
+  }
+  .wf-step-bridge-t {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--clr-text-primary);
+  }
+  .wf-step-bridge-desc {
+    font-size: 11px;
+    color: var(--clr-text-muted);
+    line-height: 1.3;
+  }
+
+  /* Bloque de salida en vista PLAN */
+  .wf-output-block {
+    margin-top: 16px;
+    padding: 14px;
+    background: var(--clr-card);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius);
+  }
+  .wf-output-header {
+    margin-bottom: 10px;
+  }
+  .wf-output-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #34d399;
+    text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 2px;
+  }
+  .wf-output-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--clr-text-primary);
+  }
+  .wf-output-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .wf-output-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 52px;
+    padding: 8px 4px;
+    border-radius: 8px;
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    color: var(--clr-text-primary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .wf-output-btn:active {
+    background: #1D2024;
+    border-color: #383D45;
+    transform: scale(0.97);
+  }
+  .wf-output-icon {
+    font-size: 20px;
+    line-height: 1;
+  }
+  .wf-output-btn-text strong {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--clr-text-primary);
+  }
+  .wf-output-btn-text small {
+    display: block;
+    font-size: 11px;
+    color: var(--clr-text-muted);
+  }
+
+  /* =======================================================================
+     1.3 NAVEGACIÓN INFERIOR FIJA (§7)
+     PREVISIÓN · STOCK · PLAN · MÁS
+     ======================================================================= */
+  #mobile-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    background: color-mix(in srgb, var(--clr-surface) 96%, transparent);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border-top: 1px solid var(--clr-border);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  #mobile-tabbar .mt-tab {
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: var(--m-nav-h);
+    padding: 9px 2px 8px 2px;
+    color: var(--clr-text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: color 0.15s ease;
+  }
+
+  #mobile-tabbar .mt-tab .mt-ico { font-size: 22px; line-height: 1; }
+
+  /* Peso como jerarquía: inactivo 500, activo 700. El estado activo se lee
+     por color + peso + indicador superior, sin recurrir a fondos llamativos. */
+  #mobile-tabbar .mt-tab { font-weight: 500; letter-spacing: 0.04em; }
+
+  #mobile-tabbar .mt-tab[aria-current="page"] {
+    color: var(--clr-text-primary);
+    font-weight: 700;
+  }
+
+  #mobile-tabbar .mt-tab[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 22%;
+    right: 22%;
+    height: 2px;
+    border-radius: 0 0 3px 3px;
+    background: var(--clr-text-primary);
+  }
+
+  #mobile-tabbar .mt-tab:active { background: var(--clr-hover); }
+
+  #mobile-tabbar .mt-badge {
+    position: absolute;
+    top: 6px;
+    right: 50%;
+    transform: translateX(20px);
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--clr-text-primary);
+    color: var(--clr-bg);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 17px;
+    text-align: center;
+  }
+  #mobile-tabbar .mt-badge[hidden] { display: none; }
+
+  /* =======================================================================
+     1.4 ROUTER DE VISTAS (§7)
+     La navegación sólo conmuta visibilidad: no recalcula ni re-renderiza.
+     ======================================================================= */
+  main > section,
+  main > div,
+  main > details {
+    display: none;
+  }
+
+  main[data-view="forecast"] #prevision-section       { display: block; }
+  main[data-view="stock"]    #stock-section           { display: block; }
+  main[data-view="locks"]    #locks-section           { display: block; }
+  main[data-view="options"]  #options-section         { display: block; }
+  main[data-view="more"]     #actions-toolbar         { display: block; }
+  main[data-view="more"]     #mobile-more-section     { display: block; }
+
+  main[data-view="plan"]     #mobile-kpi-summary      { display: block; }
+  main[data-view="plan"]     #results-column          { display: block; }
+  main[data-view="plan"]     #warnings-errors-section { display: block; }
+
+  /* Fallback: vista desconocida -> PLAN */
+  main:not([data-view="forecast"]):not([data-view="stock"]):not([data-view="plan"]):not([data-view="more"]):not([data-view="locks"]):not([data-view="options"]) #mobile-kpi-summary { display: block; }
+  main:not([data-view="forecast"]):not([data-view="stock"]):not([data-view="plan"]):not([data-view="more"]):not([data-view="locks"]):not([data-view="options"]) #results-column { display: block; }
+
+  /* =======================================================================
+     1.5 SECCIÓN: PREVISIÓN (§11)
+     ======================================================================= */
+  #prevision-section {
+    padding: var(--m-pad-card) var(--m-pad-x) !important;
+    border-radius: var(--m-radius) !important;
+  }
+
+  #prevision-section h2 { font-size: 19px !important; }
+
+  #prevision-section .flex.items-baseline.justify-between {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+
+  #prevision-section #tsv-input {
+    /* 16px: por debajo, iOS Safari hace auto-zoom al enfocar (rompe el layout) */
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+    padding: 14px !important;
+    /* Espacio suficiente para pegar el correo entero, pero sin monopolizar la
+       pantalla: objetivo ~280-360px reales, con scroll interno si el texto
+       crece. Antes 38vh/60vh dependía demasiado del alto del viewport. */
+    min-height: min(320px, 44vh) !important;
+    max-height: 360px !important;
+    overflow-y: auto !important;
+    border-radius: var(--m-radius-sm) !important;
+  }
+
+  #btn-analyze {
+    width: 100% !important;
+    min-height: var(--m-touch-lg) !important;
+    justify-content: center !important;
+    font-size: 16px !important;
+  }
+
+  #prevision-section .flex.items-center.gap-1\.5 { flex-wrap: wrap !important; }
+
+  /* Objetivos táctiles: antes 36px (por debajo del mínimo de 44px) */
+  #btn-load-18sep,
+  #btn-load-26aug {
+    min-height: var(--m-touch) !important;
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+  }
+
+  #forecast-analysis-card { padding: 14px !important; }
+  #forecast-analysis-card .flex.items-center.justify-between.flex-wrap {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+  #ana-platform-demands { max-height: none !important; }
+
+  /* =======================================================================
+     1.6 SECCIÓN: STOCK (§12)
+     ======================================================================= */
+  #stock-section {
+    padding: var(--m-pad-card) var(--m-pad-x) !important;
+    border-radius: var(--m-radius) !important;
+  }
+
+  #stock-section > .flex.items-center.justify-between {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  #plan-desactualizado-banner { flex-wrap: wrap; width: 100%; }
+
+  /* Cabecera de tabla fuera: en móvil la etiqueta va dentro de cada fila */
+  #stock-section .divide-y > .grid.grid-cols-12:first-child { display: none !important; }
+
+  #stock-section .divide-y > .grid.grid-cols-12 {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 10px !important;
+    padding: 10px 0 !important;
+  }
+
+  #stock-section .divide-y > .grid.grid-cols-12 > .col-span-8 {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    font-size: 15px !important;
+    line-height: 1.4 !important;
+    font-weight: 700 !important;
+  }
+
+  #stock-section .divide-y > .grid.grid-cols-12 > .col-span-4 {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    justify-content: stretch !important;
+  }
+
+  /* Stepper táctil: [−]  [ n ]  [+]  cjs */
+  .stock-stepper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .stock-stepper .stock-input,
+  #stock-section input[type="number"] {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: var(--m-touch-lg) !important;
+    padding: 0 12px !important;
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    text-align: center !important;
+    border-radius: var(--m-radius-sm) !important;
+    -moz-appearance: textfield;
+  }
+  #stock-section input[type="number"]::-webkit-outer-spin-button,
+  #stock-section input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .stock-stepper .stock-step {
+    flex: none;
+    width: var(--m-touch-lg);
+    height: var(--m-touch-lg);
+    border-radius: var(--m-radius-sm);
+    border: 1px solid var(--clr-border);
+    background: var(--clr-surface2);
+    color: var(--clr-text-primary);
+    /* FASE 18.4 · §6. El paso real es ±10 (data-stock-delta). Con el glifo "−"
+       a 22px parecía ±1: el operario se quedaba corto, o pulsaba desde 0 sin
+       efecto visible y creía que estaba roto. Se muestra el paso real. */
+    font-size: 17px;
+    font-weight: 800;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    /* §6: pulsaciones rápidas sin seleccionar texto ni abrir el menú contextual */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .stock-stepper .stock-step::after { content: "10"; font-size: 13px; font-weight: 700; }
+  .stock-stepper .stock-step:active {
+    background: var(--clr-hover);
+    transform: scale(0.95);
+  }
+  /* §14 · estado deshabilitado (p. ej. el "+" de un input ya al máximo) */
+  .stock-stepper .stock-step:disabled {
+    opacity: 0.45;
+    cursor: default;
+    transform: none;
+  }
+  .stock-stepper .stock-unit {
+    flex: none;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--clr-text-muted);
+  }
+
+  /* Chips de identidad producto / variedad */
+  .stock-id {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 7px;
+  }
+  .stock-id .sid-prod {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--clr-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .stock-id .sid-var {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid var(--clr-border);
+    background: var(--clr-surface2);
+    color: var(--clr-text-primary);
+  }
+  .stock-id .sid-var.is-variety { border-color: #0f766e; background: rgba(13, 148, 136, 0.16); color: #5eead4; }
+  html[data-theme="light"] .stock-id .sid-var.is-variety { background: #CCFBF1; border-color: #5EEAD4; color: #0F766E; }
+  /* FASE 18.4 · METADATA TÉCNICA FUERA DE LA UI DE STOCK.
+     "76 cjs/palet EURO" es la capacidad teórica del palet: una regla INTERNA
+     del motor de paletización, no un dato que ayude a introducir stock.
+     Desaparece de la vista móvil. El marcado es compartido con Desktop (que no
+     debe cambiar), por eso se oculta aquí y no se borra del HTML.
+     La información sigue intacta en el motor: capacidades, geometrías,
+     EURO/METROCHEP, capas y alturas no se tocan. */
+  .stock-id .sid-unit { display: none !important; }
+
+  /* =======================================================================
+     1.7 SECCIÓN: LOCKS (§13)
+     ======================================================================= */
+  #locks-section {
+    padding: var(--m-pad-card) var(--m-pad-x) !important;
+    border-radius: var(--m-radius) !important;
+  }
+
+  #locks-section > .flex.items-center.justify-between {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+  }
+
+  #lock-platform-pills { gap: 10px !important; }
+
+  .btn-select-lock-plat {
+    min-height: var(--m-touch) !important;
+    padding: 12px 16px !important;
+    font-size: 15px !important;
+    flex: 1 1 auto;
+  }
+
+  #lock-actions-container .grid.grid-cols-2 {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  #lock-actions-container .btn-lock-action {
+    min-height: var(--m-touch-lg) !important;
+    padding: 14px !important;
+    font-size: 15px !important;
+    gap: 10px;
+  }
+
+  #lock-actions-container details > div {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    max-width: 100% !important;
+  }
+  #lock-fixed-product,
+  #lock-qty {
+    width: 100% !important;
+    min-height: var(--m-touch-lg) !important;
+    font-size: 16px !important;
+  }
+  #btn-add-fixed-lock {
+    min-height: var(--m-touch-lg) !important;
+    font-size: 15px !important;
+  }
+
+  /* Objetivos táctiles: antes 32–36px (por debajo del mínimo de 44px) */
+  #active-locks-list .inline-flex { min-height: var(--m-touch); max-width: 100%; }
+  #active-locks-list .inline-flex button { min-width: var(--m-touch); min-height: var(--m-touch); font-size: 16px; }
+
+  /* =======================================================================
+     1.8 SECCIÓN: OPCIONES AVANZADAS
+     ======================================================================= */
+  #options-section details {
+    padding: var(--m-pad-card) var(--m-pad-x) !important;
+    border-radius: var(--m-radius) !important;
+  }
+  #options-section .grid.grid-cols-1 { gap: 12px !important; }
+  #options-section select,
+  #options-section input[type="text"],
+  #options-section input[type="number"] {
+    min-height: var(--m-touch-lg) !important;
+    /* 16px evita el auto-zoom de iOS al enfocar */
+    font-size: 16px !important;
+    width: 100% !important;
+  }
+  #btn-add-pallet-override,
+  #btn-add-exclusion {
+    min-height: var(--m-touch-lg) !important;
+    font-size: 15px !important;
+  }
+
+  /* Antes 38px: por debajo del mínimo táctil de 44px */
+  summary {
+    min-height: var(--m-touch);
+    display: flex;
+    align-items: center;
+    font-size: 15px;
+  }
+  summary::-webkit-details-marker { display: none; }
+
+  /* =======================================================================
+     1.9 PLAN DE CARGA: PLATAFORMAS (§8)
+     ======================================================================= */
+  /* Cabecera de área de trabajo: PLAN DE CARGA es el punto focal */
+  #results-column > .no-print.flex.items-baseline.justify-between {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px;
+    margin-top: 8px;
+    padding-bottom: 14px !important;
+  }
+  #results-column > .no-print h2 {
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.02em !important;
+    line-height: 1.15 !important;
+  }
+
+  /* Subtítulo en sentence case: a 12px, en mayúsculas y con tracking ancho
+     ("EXPEDICIÓN ORGANIZADA POR PLATAFORMA") desbordaba o partía mal a 320px. */
+  #results-column > .no-print > div > span {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+    line-height: 1.4 !important;
+    white-space: normal !important;
+  }
+
+  #platform-plan-cards-container {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    grid-template-columns: 1fr !important;
+  }
+  /* Estado vacío del PLAN: bloque contenido (~130px), nunca un rectángulo
+     enorme y vacío. No se fija max-height para no recortar el texto a 320px. */
+  #platform-plan-cards-container > .col-span-full {
+    grid-column: auto !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    min-height: 130px;
+    padding: 28px 16px !important;
+    border-radius: var(--m-radius) !important;
+  }
+
+  /* --- Tarjeta de plataforma: unidad visual principal ------------------- */
+  .digital-loading-card {
+    padding: var(--m-pad-card) !important;
+    border-radius: var(--m-radius) !important;
+    box-shadow: none !important;
+  }
+
+  /* Cabecera de la tarjeta: identidad de la plataforma. No se añade hairline
+     propia porque el marcado ya trae un divisor antes de las filas de producto
+     (duplicar líneas ensucia, §8 "no card overload"). */
+  .digital-loading-card > .flex.items-center.justify-between {
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  /* Total de la plataforma: es LA cifra de la tarjeta y debe dominar sobre las
+     cifras de cada producto (que quedan por debajo en la jerarquía). */
+  .digital-loading-card > .flex.items-baseline.justify-between > .card-boxes {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 30px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    letter-spacing: -0.03em !important;
+  }
+  .digital-loading-card > .flex.items-baseline.justify-between > span:last-child {
+    font-size: 12px !important;
+    color: var(--clr-text-muted) !important;
+  }
+
+  /* PRIORIDAD 1 · Plataforma: reconocible en menos de un segundo */
+  .digital-loading-card h3 {
+    font-size: 21px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.02em !important;
+    line-height: 1.1 !important;
+  }
+
+  .digital-loading-card .card-badge {
+    font-size: 12px !important;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--clr-text-muted);
+    text-align: right;
+  }
+
+  /* Cabecera de la mini-tabla de productos: en móvil no aplica */
+  .digital-loading-card .grid.grid-cols-12.text-\[10px\] { display: none !important; }
+
+  /* Composición móvil real de la fila de producto (no una tabla de escritorio
+     comprimida): producto y palets a la izquierda, CAJAS dominando a la derecha.
+       ┌──────────────────────────────┐
+       │ Cocktail — CONSABOR          │
+       │ 1 × EURO             36 cjs  │
+       └──────────────────────────────┘
+     Se hace sólo con CSS sobre el marcado compartido con Desktop. */
+  .digital-loading-card .grid.grid-cols-12.items-center {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "prod   boxes"
+      "pallet boxes";
+    align-items: center;
+    column-gap: 14px;
+    row-gap: 3px;
+    padding: 13px 0 !important;
+    border-bottom: 0 !important;
+  }
+  /* Separador sólo ENTRE filas: nunca un borde colgando al final del bloque */
+  .digital-loading-card .grid.grid-cols-12.items-center + .grid.grid-cols-12.items-center {
+    border-top: 1px solid var(--clr-border) !important;
+  }
+
+  /* PRIORIDAD 2 · Producto */
+  .digital-loading-card .grid.grid-cols-12.items-center > .col-span-6 {
+    grid-area: prod;
+    display: block !important;
+    width: auto !important;
+    min-width: 0 !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    line-height: 1.3 !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    color: var(--clr-text-primary) !important;
+  }
+
+  /* PRIORIDAD 5 · Palets: metadato subordinado al producto */
+  .digital-loading-card .grid.grid-cols-12.items-center > .col-span-3.badge-pallet {
+    grid-area: pallet;
+    display: block !important;
+    width: auto !important;
+    margin-top: 0;
+    text-align: left !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: var(--clr-text-muted) !important;
+  }
+
+  /* PRIORIDAD 4 · Cajas del producto: domina la fila, pero por debajo del
+     total de la plataforma (que es la cifra principal de la tarjeta). */
+  .digital-loading-card .grid.grid-cols-12.items-center > .col-span-3.card-boxes {
+    grid-area: boxes;
+    display: block !important;
+    width: auto !important;
+    align-self: center;
+    text-align: right !important;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    letter-spacing: -0.03em !important;
+  }
+  /* Unidad explícita sin tocar el marcado compartido con Desktop */
+  .digital-loading-card .grid.grid-cols-12.items-center > .col-span-3.card-boxes::after {
+    content: " cjs";
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--clr-text-muted);
+  }
+
+  /* Detalle físico embebido: apilado y legible */
+  .digital-loading-card details { margin-top: 12px !important; }
+  .digital-loading-card details summary {
+    font-size: 14px !important;
+    min-height: var(--m-touch-lg);
+    padding: 10px 0 !important;
+  }
+  .digital-loading-card details summary span:first-child { white-space: normal; }
+
+  /* Detalle físico: se aplana con una hairline en lugar de anidar otra
+     tarjeta dentro de la tarjeta (menos "card overload", misma estructura). */
+  .digital-loading-card .rounded-lg.bg-\[\#121316\] {
+    padding: 12px 0 0 0 !important;
+    margin-top: 12px;
+    background: transparent !important;
+    border: 0 !important;
+    border-top: 1px solid var(--clr-border) !important;
+    border-radius: 0 !important;
+  }
+  .digital-loading-card .flex.items-center.justify-between.text-xs.flex-wrap {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+  .digital-loading-card .font-mono.text-\[10px\] { font-size: 12px !important; }
+  .digital-loading-card .py-1.px-2.rounded { padding: 10px 12px !important; }
+  .digital-loading-card .py-1.px-2.rounded .text-\[11px\] { font-size: 12px !important; }
+  .digital-loading-card .py-1.px-2.rounded .text-\[10px\] { font-size: 12px !important; }
+
+  /* Botón VER DETALLE (exclusivo móvil) */
+  #platform-plan-cards-container .btn-platform-detail {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--m-touch-lg);
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: var(--m-radius-sm);
+    border: 1px solid var(--clr-border-active);
+    background: var(--clr-surface2);
+    color: var(--clr-text-primary);
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  #platform-plan-cards-container .btn-platform-detail:active {
+    background: var(--clr-hover);
+    transform: scale(0.985);
+  }
+
+  /* =======================================================================
+     1.10 DETALLE DE PLATAFORMA (§9)
+     ======================================================================= */
+  .platform-detail-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: var(--clr-bg);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+  .platform-detail-modal[hidden] { display: none !important; }
+
+  .platform-detail-modal .pdm-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: calc(14px + env(safe-area-inset-top, 0px)) var(--m-pad-x) 14px var(--m-pad-x);
+    background: color-mix(in srgb, var(--clr-surface) 96%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--clr-border);
+  }
+
+  .platform-detail-modal .pdm-title { min-width: 0; }
+
+  .platform-detail-modal .pdm-kicker {
+    display: block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--clr-text-muted);
+  }
+
+  .platform-detail-modal .pdm-name {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.1;
+    color: var(--clr-text-primary);
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .platform-detail-modal .pdm-close {
+    flex: none;
+    width: var(--m-touch);
+    height: var(--m-touch);
+    border-radius: var(--m-radius-sm);
+    border: 1px solid var(--clr-border);
+    background: var(--clr-card);
+    color: var(--clr-text-primary);
+    font-size: 22px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .platform-detail-modal .pdm-close:active { background: var(--clr-hover); }
+
+  .platform-detail-modal .pdm-body {
+    padding: var(--m-pad-card);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .platform-detail-modal .pdm-hero {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius);
+    overflow: hidden;
+    background: var(--clr-border);
+  }
+  .platform-detail-modal .pdm-hero > div {
+    background: var(--clr-card);
+    padding: 12px 6px;
+    text-align: center;
+  }
+  .platform-detail-modal .pdm-hero b {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--clr-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .platform-detail-modal .pdm-hero span {
+    display: block;
+    margin-top: 3px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--clr-text-muted);
+  }
+
+  .platform-detail-modal .pdm-group-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--clr-text-muted);
+    border-bottom: 1px solid var(--clr-border);
+    padding-bottom: 8px;
+  }
+
+  .platform-detail-modal .pdm-prod {
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius);
+    background: var(--clr-card);
+    overflow: hidden;
+  }
+  .platform-detail-modal .pdm-prod-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px;
+  }
+  /* PRIORIDAD 2 · Producto */
+  .platform-detail-modal .pdm-prod-name {
+    font-size: 17px;
+    font-weight: 800;
+    line-height: 1.25;
+    color: var(--clr-text-primary);
+  }
+  /* PRIORIDAD 3 · Variedad */
+  .platform-detail-modal .pdm-prod-var {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 6px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border: 1px solid #0f766e;
+    background: rgba(13, 148, 136, 0.16);
+    color: #5eead4;
+  }
+  html[data-theme="light"] .platform-detail-modal .pdm-prod-var {
+    background: #CCFBF1; border-color: #5EEAD4; color: #0F766E;
+  }
+  .platform-detail-modal .pdm-prod-boxes { flex: none; text-align: right; }
+  /* PRIORIDAD 4 · Cajas: la cifra domina sobre producto y variedad */
+  .platform-detail-modal .pdm-prod-boxes b {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--clr-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .platform-detail-modal .pdm-prod-boxes span {
+    display: block;
+    margin-top: 3px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--clr-text-muted);
+  }
+
+  .platform-detail-modal .pdm-prod-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 14px 14px 14px;
+  }
+  .platform-detail-modal .pdm-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--clr-border);
+    background: var(--clr-surface2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--clr-text-secondary);
+    white-space: nowrap;
+  }
+  .platform-detail-modal .pdm-tag.is-metro {
+    border-color: #7e22ce; background: rgba(126, 34, 206, 0.18); color: #d8b4fe;
+  }
+  html[data-theme="light"] .platform-detail-modal .pdm-tag.is-metro {
+    background: #F3E8FF; border-color: #D8B4FE; color: #6B21A8;
+  }
+  .platform-detail-modal .pdm-tag.is-missing {
+    border-color: #9f1239; background: rgba(159, 18, 57, 0.2); color: #fda4af;
+  }
+  html[data-theme="light"] .platform-detail-modal .pdm-tag.is-missing {
+    background: #FFE4E6; border-color: #FDA4AF; color: #9F1239;
+  }
+
+  .platform-detail-modal .pdm-pallets {
+    border-top: 1px solid var(--clr-border);
+    background: var(--clr-surface);
+  }
+  .platform-detail-modal .pdm-pallet-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 11px 14px;
+    font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--clr-text-secondary);
+    border-bottom: 1px solid var(--clr-border);
+  }
+  .platform-detail-modal .pdm-pallet-row:last-child { border-bottom: 0; }
+  .platform-detail-modal .pdm-pallet-row b { color: var(--clr-text-primary); }
+  .platform-detail-modal .pdm-pallet-row .pdm-occ {
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    border: 1px solid #047857;
+    background: rgba(4, 120, 87, 0.2);
+    color: #34d399;
+  }
+  .platform-detail-modal .pdm-pallet-row .pdm-occ.is-partial {
+    border-color: #b45309; background: rgba(180, 83, 9, 0.2); color: #fbbf24;
+  }
+  html[data-theme="light"] .platform-detail-modal .pdm-pallet-row .pdm-occ { color: #047857; }
+  html[data-theme="light"] .platform-detail-modal .pdm-pallet-row .pdm-occ.is-partial { color: #92400E; }
+
+  /* Torres */
+  .platform-detail-modal .pdm-tower {
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius);
+    background: var(--clr-card);
+    overflow: hidden;
+  }
+  .platform-detail-modal .pdm-tower-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 14px;
+    border-bottom: 1px solid var(--clr-border);
+  }
+  .platform-detail-modal .pdm-tower-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--clr-text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .platform-detail-modal .pdm-tower-fmt {
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    border: 1px solid var(--clr-border-active);
+    background: var(--clr-hover);
+    color: var(--clr-text-primary);
+  }
+  .platform-detail-modal .pdm-tower-fmt.is-metro {
+    border-color: #7e22ce; background: rgba(126, 34, 206, 0.18); color: #d8b4fe;
+  }
+  html[data-theme="light"] .platform-detail-modal .pdm-tower-fmt.is-metro {
+    background: #F3E8FF; border-color: #D8B4FE; color: #6B21A8;
+  }
+  .platform-detail-modal .pdm-tower-h {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--clr-text-secondary);
+    text-align: right;
+  }
+  .platform-detail-modal .pdm-tower-h b { color: var(--clr-text-primary); font-size: 14px; }
+  .platform-detail-modal .pdm-tower-h .pdm-rest { color: #34d399; font-weight: 700; }
+  html[data-theme="light"] .platform-detail-modal .pdm-tower-h .pdm-rest { color: #047857; }
+
+  .platform-detail-modal .pdm-tower-body {
+    padding: 12px 14px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .platform-detail-modal .pdm-tpallet {
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius-sm);
+    background: var(--clr-surface);
+    padding: 12px;
+  }
+  .platform-detail-modal .pdm-tpallet-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .platform-detail-modal .pdm-tpallet-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--clr-text-primary);
+  }
+  .platform-detail-modal .pdm-tpallet-name em {
+    font-style: normal;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--clr-text-muted);
+    border: 1px solid var(--clr-border);
+    border-radius: 4px;
+    padding: 1px 4px;
+  }
+  .platform-detail-modal .pdm-tpallet-mm {
+    flex: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--clr-text-primary);
+  }
+  .platform-detail-modal .pdm-tpallet-sub {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--clr-text-muted);
+  }
+
+  .platform-detail-modal .pdm-empty {
+    padding: 20px 14px;
+    text-align: center;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--clr-text-muted);
+  }
+
+  body.pdm-lock { overflow: hidden; }
+
+  /* =======================================================================
+     1.11 AVISOS / INCIDENCIAS
+     ======================================================================= */
+  #warnings-errors-section .border.rounded-lg {
+    padding: 14px !important;
+    border-radius: var(--m-radius) !important;
+  }
+  #errors-list-container > div { padding: 12px 14px !important; }
+  #errors-list-container > div .flex.items-center.gap-2 { flex-wrap: wrap !important; row-gap: 6px; }
+
+  /* =======================================================================
+     1.12 ACCIONES (§15) — PDF · WHATSAPP · IMPRIMIR
+     ======================================================================= */
+  #actions-toolbar {
+    padding: var(--m-pad-card) var(--m-pad-x) !important;
+    border-radius: var(--m-radius) !important;
+  }
+
+  #actions-toolbar > .flex.flex-col {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  #actions-toolbar .flex.items-center.gap-2.w-full {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  #btn-export-pdf,
+  #btn-export-whatsapp,
+  #btn-print-plan {
+    width: 100% !important;
+    min-height: var(--m-touch-lg) !important;
+    font-size: 16px !important;
+    padding: 14px !important;
+  }
+
+  #btn-export-pdf { order: -1; }
+
+  /* =======================================================================
+     1.13 TABLAS TÉCNICAS SIN SCROLL HORIZONTAL
+     La tabla matricial de 8 columnas pasa a tarjetas apiladas.
+     ======================================================================= */
+  #options-section .overflow-x-auto { overflow-x: visible !important; }
+
+  #options-section table,
+  #options-section thead,
+  #options-section tbody,
+  #options-section tr,
+  #options-section th,
+  #options-section td {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  #options-section thead { display: none !important; }
+
+  #options-section tbody tr {
+    border: 1px solid var(--clr-border) !important;
+    border-radius: var(--m-radius-sm);
+    background: var(--clr-card);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+
+  #options-section tbody td {
+    padding: 4px 0 !important;
+    text-align: left !important;
+    font-size: 13px !important;
+    border: 0 !important;
+    white-space: normal !important;
+  }
+
+  #options-section tbody td:nth-child(1) {
+    font-size: 16px !important;
+    font-weight: 800 !important;
+    padding-bottom: 8px !important;
+    border-bottom: 1px solid var(--clr-border) !important;
+    margin-bottom: 4px;
+  }
+
+  #options-section tbody td:nth-child(2)::before { content: "Producto: "; color: var(--clr-text-muted); font-weight: 700; }
+  #options-section tbody td:nth-child(3)::before { content: "Variedad: "; color: var(--clr-text-muted); font-weight: 700; }
+  #options-section tbody td:nth-child(4)::before { content: "Demandadas: "; color: var(--clr-text-muted); font-weight: 700; }
+  #options-section tbody td:nth-child(5)::before { content: "Asignadas: "; color: var(--clr-text-muted); font-weight: 700; }
+  #options-section tbody td:nth-child(6)::before { content: "Pendientes: "; color: var(--clr-text-muted); font-weight: 700; }
+  #options-section tbody td:nth-child(7)::before { content: "Palet: "; color: var(--clr-text-muted); font-weight: 700; }
+  #options-section tbody td:nth-child(8)::before { content: "Método: "; color: var(--clr-text-muted); font-weight: 700; }
+
+  #palletization-groups-container { padding: 0 !important; }
+  #palletization-groups-container .grid { grid-template-columns: 1fr !important; }
+  #palletization-groups-container > div > .flex.items-center.justify-between {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+
+  /* =======================================================================
+     1.14 VISTA "MÁS"
+     ======================================================================= */
+  #mobile-more-section {
+    display: none;
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius);
+    background: var(--clr-card);
+    padding: var(--m-pad-card) var(--m-pad-x);
+    margin-bottom: 12px;
+  }
+
+  #mobile-more-section h2 {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--clr-text-primary);
+    margin-bottom: 12px;
+  }
+
+  #mobile-more-section .mm-list { display: flex; flex-direction: column; gap: 10px; }
+
+  #mobile-more-section .mm-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    min-height: var(--m-touch-lg);
+    padding: 11px 14px;
+    border-radius: var(--m-radius-sm);
+    border: 1px solid var(--clr-border);
+    background: var(--clr-surface2);
+    color: var(--clr-text-primary);
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  #mobile-more-section .mm-item:active { background: var(--clr-hover); }
+
+  #mobile-more-section .mm-item .mm-ico { font-size: 22px; margin-right: 12px; }
+  #mobile-more-section .mm-item .mm-left { display: flex; align-items: center; min-width: 0; }
+  #mobile-more-section .mm-item .mm-chev { color: var(--clr-text-muted); font-size: 20px; flex: none; }
+  #mobile-more-section .mm-item .mm-sub {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--clr-text-muted);
+    margin-top: 3px;
+  }
+
+  #mobile-more-section .mm-sep { height: 1px; background: var(--clr-border); margin: 14px 0; }
+
+  #mobile-more-section .mm-note { font-size: 12px; line-height: 1.5; color: var(--clr-text-muted); }
+
+  #mobile-more-section .mm-context { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  #mobile-more-section .mm-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--clr-border);
+    background: var(--clr-surface2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--clr-text-secondary);
+  }
+  #mobile-more-section .mm-chip b { color: var(--clr-text-primary); }
+
+  /* =======================================================================
+     FASE 18.5.1 · CIERRE DEL FLUJO (§1 y §2)
+     ======================================================================= */
+
+  /* §1 · Dos grupos visuales en MÁS: SALIDA vs CONFIGURACIÓN OPERATIVA.
+     Son sólo rótulos: no se mueve, reordena ni reasigna ninguna acción, y los
+     IDs/eventos siguen exactamente igual. */
+  #mobile-more-section .mm-group {
+    margin: 6px 0 -2px 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--clr-text-muted);
+  }
+  #mobile-more-section .mm-group:first-child { margin-top: 0; }
+
+  /* §2 · «GENERAR PLAN DE CARGA» es el PUENTE entre los datos preparados y el
+     resultado. Se le añade contexto SÓLO en móvil, sin tocar su marcado, su
+     funcionamiento ni sus validaciones. */
+  #btn-generate-plan {
+    flex-direction: column;
+    gap: 1px;
+  }
+  #btn-generate-plan::before {
+    content: "PREVISIÓN + STOCK + BLOQUEOS → PLAN";
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    opacity: 0.7;
+  }
+
+  /* =======================================================================
+     FASE 18.6 · §4 · PASO 3 DEL FLUJO — BLOQUEOS Y EXCEPCIONES
+     Puerta de entrada contextual a los controles de bloqueo que YA existen
+     (mismo setView('locks')). MÁS conserva su acceso secundario. No hay
+     funcionalidad duplicada.
+     ======================================================================= */
+  #stock-section .wf-step-card {
+    margin: 4px 0 2px 0;
+    padding: 14px;
+    border: 1px solid var(--clr-border);
+    border-radius: var(--m-radius-sm);
+    background: var(--clr-surface2);
+  }
+  #stock-section .wf-step-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  #stock-section .wf-step-n {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--clr-text-muted);
+  }
+  #stock-section .wf-step-t {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--clr-text-primary);
+  }
+  #stock-section .wf-step-desc {
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--clr-text-muted);
+  }
+  #stock-section .wf-step-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  #stock-section .wf-step-status {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--clr-text-secondary);
+  }
+  #stock-section .wf-step-btn {
+    min-height: var(--m-touch);
+    padding: 10px 14px;
+    border-radius: var(--m-radius-sm);
+    border: 1px solid var(--clr-border-active);
+    background: var(--clr-card);
+    color: var(--clr-text-primary);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #stock-section .wf-step-btn:active {
+    background: var(--clr-hover);
+    transform: scale(0.985);
+  }
+
+  /* =======================================================================
+     1.15 MICROINTERACCIONES, FOCO Y SCROLL (§16 · §17 · §22)
+     Transiciones de 140ms: la app se siente rápida. Sin rebotes, sin adornos.
+     ======================================================================= */
+  #mobile-tabbar .mt-tab,
+  .digital-loading-card,
+  .digital-loading-card .btn-platform-detail,
+  .stock-stepper .stock-step,
+  #mobile-more-section .mm-item,
+  .btn-select-lock-plat,
+  .btn-lock-action,
+  #btn-analyze,
+  #btn-export-pdf,
+  #btn-export-whatsapp,
+  #btn-print-plan,
+  #mobile-header #btn-theme-toggle {
+    transition: background-color 0.14s ease, border-color 0.14s ease,
+                color 0.14s ease, transform 0.14s ease;
+  }
+
+  /* Feedback de pulsación contenido (nada de rebotes) */
+  #btn-analyze:active,
+  #btn-export-pdf:active,
+  #btn-export-whatsapp:active,
+  #btn-print-plan:active,
+  #mobile-more-section .mm-item:active,
+  .btn-lock-action:active,
+  .btn-select-lock-plat:active {
+    transform: scale(0.985);
+  }
+
+  /* Foco visible (accesibilidad): no se sacrifica al pulido visual */
+  #mobile-header button:focus-visible,
+  #mobile-tabbar .mt-tab:focus-visible,
+  .digital-loading-card .btn-platform-detail:focus-visible,
+  .stock-stepper .stock-step:focus-visible,
+  #mobile-more-section .mm-item:focus-visible,
+  .platform-detail-modal button:focus-visible,
+  .btn-select-lock-plat:focus-visible,
+  .btn-lock-action:focus-visible,
+  main button:focus-visible,
+  main input:focus-visible,
+  main select:focus-visible,
+  main textarea:focus-visible {
+    outline: 2px solid var(--clr-text-primary);
+    outline-offset: 2px;
+    border-radius: var(--m-radius-sm);
+  }
+
+  /* Inputs enfocados: borde activo. Sin halos ni sombras. */
+  #prevision-section #tsv-input:focus,
+  #stock-section input[type="number"]:focus,
+  #options-section select:focus,
+  #options-section input:focus,
+  #lock-qty:focus,
+  #lock-fixed-product:focus {
+    border-color: var(--clr-border-active) !important;
+  }
+
+  /* Nada puede generar scroll horizontal ni contenedores desbordados */
+  #mobile-more-section,
+  #results-column,
+  #platform-plan-cards-container,
+  .digital-loading-card { max-width: 100%; min-width: 0; }
+
+  /* El modal de detalle es la única superficie con scroll: sin scrollbar
+     visible, el gesto táctil ya es la affordance. */
+  .platform-detail-modal { scrollbar-width: none; }
+  .platform-detail-modal::-webkit-scrollbar { width: 0; height: 0; }
+
+  /* §6/§14 · Ningún control debe seleccionar texto por pulsación mantenida ni
+     abrir el menú contextual de iOS: en un almacén se toca rápido y repetido. */
+  #mobile-tabbar .mt-tab,
+  #mobile-more-section .mm-item,
+  .btn-select-lock-plat,
+  .btn-lock-action,
+  .stock-stepper .stock-step,
+  .digital-loading-card .btn-platform-detail,
+  .platform-detail-modal .pdm-close,
+  #mobile-header #btn-theme-toggle {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* §14 · Estado deshabilitado coherente en toda la capa móvil: durante el
+     recálculo los botones principales se atenúan en vez de desaparecer. */
+  #btn-analyze:disabled,
+  #btn-generate-plan:disabled,
+  #btn-export-pdf:disabled,
+  #btn-export-whatsapp:disabled,
+  #btn-print-plan:disabled,
+  .btn-lock-action:disabled,
+  .btn-select-lock-plat:disabled {
+    opacity: 0.5 !important;
+    cursor: default !important;
+  }
+
+  /* Previsión Consolidada y Modales en Móvil (Fase V4) */
+  #btn-open-add-order {
+    min-height: var(--m-touch);
+  }
+  .delivery-date-pill {
+    min-height: var(--m-touch);
+  }
+  #btn-close-add-order,
+  #btn-close-split-order {
+    min-width: var(--m-touch);
+    min-height: var(--m-touch);
+  }
+  #btn-save-order,
+  #btn-confirm-split {
+    min-height: var(--m-touch);
+  }
+}
+
+/* =========================================================================
+   2. RANGOS INTERMEDIOS / TABLET (480–1023) — misma shell, más aire
+   ========================================================================= */
+@media (min-width: 480px) and (max-width: 1023.98px) {
+  main { padding-left: 18px !important; padding-right: 18px !important; }
+
+  #mobile-kpi-summary .mk-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  #mobile-kpi-summary .mk-cell { border-bottom: 0 !important; }
+  #mobile-kpi-summary .mk-cell:nth-child(3n) { border-right: 1px solid var(--clr-border); }
+  #mobile-kpi-summary .mk-cell:last-child { border-right: 0; }
+  #mobile-kpi-summary .mk-value { font-size: 22px; }
+  #mobile-kpi-summary .mk-label { font-size: 12px; }
+
+  #stock-section .divide-y > .grid.grid-cols-12 > .col-span-8 { flex: 1 1 auto !important; width: auto !important; }
+  #stock-section .divide-y > .grid.grid-cols-12 > .col-span-4 { flex: 0 0 230px !important; width: 230px !important; }
+
+  #lock-actions-container .grid.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+  /* En tablet sí cabe el nombre completo de la aplicación */
+  #mobile-header .mh-title-rest { display: inline; }
+
+  /* FASE 18.3 · BUG DE OVERFLOW HORIZONTAL.
+     La capa móvil deja los 3 botones de #actions-toolbar a `width: 100%`.
+     Al pasar el contenedor a fila (aquí), 3 x 100% + gaps desbordan el ancho
+     del viewport: en la captura real de MÁS se veía un fragmento claro saliendo
+     por el borde derecho. En fila deben repartirse el espacio, no pedirlo entero. */
+  #actions-toolbar .flex.items-center.gap-2.w-full { flex-direction: row !important; }
+  #actions-toolbar #btn-export-pdf,
+  #actions-toolbar #btn-export-whatsapp,
+  #actions-toolbar #btn-print-plan {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  #btn-export-pdf { order: 0; }
+
+  .platform-detail-modal .pdm-body { padding: 20px; }
+}
+
+/* =========================================================================
+   3. MÓVIL ESTRECHO (<= 360px) — 320 px incluido
+   ========================================================================= */
+@media (max-width: 360px) {
+  main { padding-left: 10px !important; padding-right: 10px !important; }
+
+  #mobile-header .mh-row { padding-left: 10px; padding-right: 10px; gap: 6px; }
+  #mobile-header #badge-delivery-date { font-size: 11px; }
+  #mobile-header #badge-plan-status { max-width: 72px; }
+  #mobile-header #badge-plan-sync { max-width: 96px; }
+
+  /* Se ajusta el tamaño, NUNCA por debajo del suelo de legibilidad (11px) */
+  #mobile-kpi-summary .mk-value { font-size: 20px; }
+  #mobile-kpi-summary .mk-label { font-size: 11px; letter-spacing: 0.02em; }
+
+  .digital-loading-card { padding: 14px 12px !important; }
+  .digital-loading-card h3 { font-size: 19px !important; }
+
+  /* El total de cajas de la plataforma sigue dominando en 320px; las cifras de
+     producto bajan un escalón para no competir con él. */
+  .digital-loading-card .grid.grid-cols-12.items-center > .col-span-3.card-boxes {
+    font-size: 24px !important;
+  }
+
+  #mobile-tabbar .mt-tab { font-size: 11px; }
+  #mobile-tabbar .mt-tab .mt-ico { font-size: 20px; }
+
+  .platform-detail-modal .pdm-body { padding: 14px; }
+  .platform-detail-modal .pdm-name { font-size: 20px; }
+  .platform-detail-modal .pdm-prod-boxes b { font-size: 24px; }
+  .platform-detail-modal .pdm-hero b { font-size: 20px; }
+}
+
+/* =========================================================================
+   4. UX TÁCTIL: sin dependencia de hover (§17)
+   ========================================================================= */
+@media (max-width: 1023.98px) and (hover: none) {
+  html[data-theme] .digital-loading-card:hover { border-color: var(--clr-border) !important; }
+}
+
+/* =========================================================================
+   5. MOVIMIENTO REDUCIDO
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  #mobile-tabbar .mt-tab,
+  #platform-plan-cards-container .btn-platform-detail,
+  .stock-stepper .stock-step {
+    transition: none !important;
+  }
+}
+
+/* =========================================================================
+   6. IMPRESIÓN: el shell móvil no interviene en la hoja A4
+   ========================================================================= */
+@media print {
+  #mobile-header,
+  #mobile-tabbar,
+  #mobile-kpi-summary,
+  #mobile-workflow-bar,
+  #mobile-more-section,
+  .wf-stage-banner,
+  .wf-step-bridge,
+  .wf-output-block,
+  .wf-next-action-box,
+  .platform-detail-modal,
+  #modal-add-order,
+  #modal-split-order,
+  .mobile-only,
+  #platform-plan-cards-container .btn-platform-detail,
+  .stock-stepper {
+    display: none !important;
+  }
+
+  /* FASE 18.2: la unidad "cjs" es un adorno de pantalla generado por CSS.
+     No debe aparecer en la hoja A4 / PDF (que tiene su propio contrato). */
+  .digital-loading-card .grid.grid-cols-12.items-center > .col-span-3.card-boxes::after {
+    content: none !important;
+  }
+}
+
+/* =========================================================================
+   7. ESCRITORIO (>= 1024px): el shell móvil NO debe aparecer.
+
+   BUG CORREGIDO (FASE 18.4). No existía NINGUNA regla que ocultase
+   `.mobile-only` en escritorio: la única aparición de ese selector estaba
+   dentro de @media print. Y como ninguna media query móvil aplica a partir de
+   1024px, esos elementos conservaban el `display` por defecto del navegador
+   (block). Consecuencia real: en un PC se veían el header móvil, el resumen
+   KPI, la vista "MÁS" y la tabbar inferior, superpuestos al shell de
+   escritorio. El antiguo test de no-regresión lo consagraba: comprobaba que
+   "ninguna regla móvil aplica" a 1280px, que NO es lo mismo que "está oculto"
+   (la ausencia de regla deja el valor del UA, no `none`).
+
+   Escritorio debe conservar EXCLUSIVAMENTE su propio shell (.desktop-only).
+   Esto no cambia el diseño de Desktop: restaura el que ya estaba definido.
+   ========================================================================= */
+@media (min-width: 1024px) {
+  .mobile-only,
+  #mobile-workflow-bar,
+  .wf-stage-banner,
+  .wf-step-bridge,
+  .wf-output-block,
+  .wf-next-action-box,
+  .btn-platform-detail {
+    display: none !important;
+  }
+}
+
+

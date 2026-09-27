@@ -1,0 +1,36 @@
+# ============================================================================
+# PHASE 19 — .claspignore
+#
+# IMPORTANTE: clasp evalúa estos patrones RELATIVOS a `rootDir` (gas/), no a la
+# raíz del workspace. Por eso los patrones hablan de `Code.gs` / `SRC_*.html`,
+# no de `gas/...`.
+#
+# Estrategia: allowlist estricta. Se ignora todo (`**/*`) y se vuelven a
+# permitir únicamente los artefactos del shell de Google Apps Script.
+#
+# `clasp push` sube EXACTAMENTE 11 archivos:
+#   appsscript.json   manifiesto del proyecto (clasp lo sube siempre)
+#   Code.gs           doGet + include (SIN lógica de negocio)
+#   index.html        shell: estructura + <style> + scriptlets
+#   SRC_mobile_css.html           <- src/mobile.css        (verbatim)
+#   SRC_catalog_js.html           <- src/catalog.js        (verbatim)
+#   SRC_parser_js.html            <- src/parser.js         (verbatim)
+#   SRC_hamilton_js.html          <- src/hamilton.js       (verbatim)
+#   SRC_cocktail_solver_js.html   <- src/cocktail-solver.js(verbatim)
+#   SRC_palletizer_js.html        <- src/palletizer.js     (verbatim)
+#   SRC_orchestrator_js.html      <- src/orchestrator.js   (verbatim)
+#   SRC_ui_js.html                <- src/ui.js             (verbatim)
+#
+# NUNCA se sube: tests/, tools/, src/ (originales), release/, reports/, scratch/,
+# .git/, node_modules/, ZIPs, logs, PDFs, .env, credenciales ni documentación
+# interna (incluido el manifiesto de build gas/GAS_BUILD_MANIFEST.json).
+# ============================================================================
+
+# Ignorar absolutamente todo el contenido de rootDir...
+**/*
+
+# ...y volver a permitir sólo el bundle de Apps Script.
+!appsscript.json
+!Code.gs
+!index.html
+!SRC_*.html

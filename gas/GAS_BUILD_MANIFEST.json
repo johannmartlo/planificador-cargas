@@ -1,0 +1,85 @@
+{
+  "generado": "2026-09-27T11:15:07.147Z",
+  "manifest": [
+    {
+      "gas": "SRC_mobile_css.html",
+      "origin": "src/mobile.css",
+      "bytes": 71710,
+      "sha256": "74c4abe48ee88085cf54f16455cd17171f556a90eaa9853dec50db2217b8dac3",
+      "originSha256": "74c4abe48ee88085cf54f16455cd17171f556a90eaa9853dec50db2217b8dac3",
+      "identico": true
+    },
+    {
+      "gas": "SRC_catalog_js.html",
+      "origin": "src/catalog.js",
+      "bytes": 7869,
+      "sha256": "32a024f4309d779daa2343cba52b8918eb2293e2cdaa2ce3d8eab2a59434c75a",
+      "originSha256": "32a024f4309d779daa2343cba52b8918eb2293e2cdaa2ce3d8eab2a59434c75a",
+      "identico": true
+    },
+    {
+      "gas": "SRC_parser_js.html",
+      "origin": "src/parser.js",
+      "bytes": 13747,
+      "sha256": "a432605299471a9b0d9b58278a18a8e86dae7afc02e3f439ca597962cbe3cd92",
+      "originSha256": "a432605299471a9b0d9b58278a18a8e86dae7afc02e3f439ca597962cbe3cd92",
+      "identico": true
+    },
+    {
+      "gas": "SRC_hamilton_js.html",
+      "origin": "src/hamilton.js",
+      "bytes": 17874,
+      "sha256": "23d9c426f0cced2a96cb72b7397d8366674cc9d6597cade654e2aea9d4db04e4",
+      "originSha256": "23d9c426f0cced2a96cb72b7397d8366674cc9d6597cade654e2aea9d4db04e4",
+      "identico": true
+    },
+    {
+      "gas": "SRC_cocktail_solver_js.html",
+      "origin": "src/cocktail-solver.js",
+      "bytes": 32395,
+      "sha256": "ab80e682856fc0582ddaac3b58e6da3b5366c930993549c97e550eecb031ac7c",
+      "originSha256": "ab80e682856fc0582ddaac3b58e6da3b5366c930993549c97e550eecb031ac7c",
+      "identico": true
+    },
+    {
+      "gas": "SRC_palletizer_js.html",
+      "origin": "src/palletizer.js",
+      "bytes": 38574,
+      "sha256": "6f4f86450f210d04effb5deabc6d75516ba24dacebbebabcef362ffc6f96a786",
+      "originSha256": "6f4f86450f210d04effb5deabc6d75516ba24dacebbebabcef362ffc6f96a786",
+      "identico": true
+    },
+    {
+      "gas": "SRC_orchestrator_js.html",
+      "origin": "src/orchestrator.js",
+      "bytes": 31829,
+      "sha256": "425840d21afa00015365099486228156c8ba72fb670c701b9b80af972aa9a39b",
+      "originSha256": "425840d21afa00015365099486228156c8ba72fb670c701b9b80af972aa9a39b",
+      "identico": true
+    },
+    {
+      "gas": "SRC_ui_js.html",
+      "origin": "src/ui.js",
+      "bytes": 218514,
+      "sha256": "607001e43c7550f5d20be399fc8bf265b2775000fa3a322111296f2a88e98d2a",
+      "originSha256": "607001e43c7550f5d20be399fc8bf265b2775000fa3a322111296f2a88e98d2a",
+      "identico": true
+    }
+  ],
+  "diffSummary": {
+    "lineasAntes": 1717,
+    "lineasDespues": 1719,
+    "scriptletsCss": 1,
+    "scriptletsJs": 7,
+    "cambios": [
+      "<link href=\"src/mobile.css\"> -> <style><?!= include('SRC_mobile_css.html') ?></style>",
+      "<script src=\"src/catalog.js\"> -> <script><?!= include('SRC_catalog_js.html') ?>",
+      "<script src=\"src/parser.js\"> -> <script><?!= include('SRC_parser_js.html') ?>",
+      "<script src=\"src/hamilton.js\"> -> <script><?!= include('SRC_hamilton_js.html') ?>",
+      "<script src=\"src/cocktail-solver.js\"> -> <script><?!= include('SRC_cocktail_solver_js.html') ?>",
+      "<script src=\"src/palletizer.js\"> -> <script><?!= include('SRC_palletizer_js.html') ?>",
+      "<script src=\"src/orchestrator.js\"> -> <script><?!= include('SRC_orchestrator_js.html') ?>",
+      "<script src=\"src/ui.js\"> -> <script><?!= include('SRC_ui_js.html') ?>"
+    ]
+  }
+}

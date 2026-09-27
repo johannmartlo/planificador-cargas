@@ -1,0 +1,52 @@
+﻿[
+    {
+        "Archivo":  "index.html",
+        "Bytes":  68575,
+        "SHA256":  "5C3343D3459C6F0B"
+    },
+    {
+        "Archivo":  "src\\catalog.js",
+        "Bytes":  7869,
+        "SHA256":  "32A024F4309D779D"
+    },
+    {
+        "Archivo":  "src\\cocktail-solver.js",
+        "Bytes":  32395,
+        "SHA256":  "AB80E682856FC058"
+    },
+    {
+        "Archivo":  "src\\hamilton.js",
+        "Bytes":  17874,
+        "SHA256":  "23D9C426F0CCED2A"
+    },
+    {
+        "Archivo":  "src\\logistics-engine.js",
+        "Bytes":  43935,
+        "SHA256":  "E00C39527E6BA1F7"
+    },
+    {
+        "Archivo":  "src\\mobile.css",
+        "Bytes":  43532,
+        "SHA256":  "C66A7031EF7B3A09"
+    },
+    {
+        "Archivo":  "src\\orchestrator.js",
+        "Bytes":  30161,
+        "SHA256":  "48CF4A3B4E4C5B01"
+    },
+    {
+        "Archivo":  "src\\palletizer.js",
+        "Bytes":  38574,
+        "SHA256":  "6F4F86450F210D04"
+    },
+    {
+        "Archivo":  "src\\parser.js",
+        "Bytes":  13747,
+        "SHA256":  "A432605299471A9B"
+    },
+    {
+        "Archivo":  "src\\ui.js",
+        "Bytes":  137680,
+        "SHA256":  "FA83AB54E9F2EC99"
+    }
+]

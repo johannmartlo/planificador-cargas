@@ -1,0 +1,42 @@
+# ============================================================================
+# PHASE 19 — .gitignore
+# Evita que credenciales, artefactos y dependencias entren en el repositorio.
+# ============================================================================
+
+# --- Credenciales de clasp (NUNCA versionar) --------------------------------
+.clasprc.json
+.clasprc.json.*
+.clasprc.auth.json
+**/.clasprc.json
+**/.clasprc.auth.json
+
+# --- Secretos y configuración local ----------------------------------------
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+client_secret*.json
+
+# --- Dependencias y temporales ---------------------------------------------
+node_modules/
+*.log
+*.tmp
+tmp/
+scratch/
+
+# --- Snapshot congelado: nunca versionar desde la copia de trabajo ---------
+release/
+*.zip
+
+# --- Documentación e informes internos -------------------------------------
+reports/
+CAPTURAS/
+*.pdf
+*.png
+*.jpg
+*.jpeg
+
+# --- Artefactos internos de IA / Gemini ------------------------------------
+.gemini/
+**/.system_generated/
