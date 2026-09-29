@@ -203,7 +203,9 @@ function serialize(node) {
       return v === '' ? ` ${k}` : ` ${k}="${String(v).replace(/"/g, '&quot;')}"`;
     })
     .join('');
-  const inner = node.children.map(serialize).join('');
+  const inner = node.children.length > 0
+    ? node.children.map(serialize).join('')
+    : (node.textContent || '');
   return `<${tag}${attrs}>${inner}</${tag}>`;
 }
 /**

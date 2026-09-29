@@ -275,6 +275,46 @@
       border-color: var(--clr-border) !important;
     }
 
+    /* V4.5 STEP 1 — Cabecera Global del Plan de Carga */
+    #plan-global-header {
+      background-color: var(--clr-card);
+      border-color: var(--clr-border);
+    }
+    #plan-global-header .plan-header-kpi-servido #plan-header-servido {
+      color: var(--clr-text-primary);
+    }
+    #plan-global-header .plan-header-kpi-demandado #plan-header-demandado {
+      color: var(--clr-text-secondary);
+    }
+    html[data-theme="light"] #plan-global-header .plan-header-kpi-demandado {
+      background-color: var(--clr-surface) !important;
+      border-color: var(--clr-border) !important;
+    }
+    #plan-global-header .plan-header-kpi-pendiente {
+      background-color: var(--clr-surface);
+      border-color: var(--clr-border);
+    }
+    #plan-global-header .plan-header-kpi-pendiente.is-incident {
+      border-color: rgba(245, 158, 11, 0.45) !important;
+      background-color: rgba(120, 53, 15, 0.2) !important;
+      color: #fde68a !important;
+    }
+    #plan-global-header .plan-header-kpi-pendiente.is-incident #plan-header-pendiente {
+      color: #fbbf24 !important;
+    }
+    html[data-theme="light"] #plan-global-header .plan-header-kpi-pendiente.is-incident {
+      border-color: #fcd34d !important;
+      background-color: #fef3c7 !important;
+      color: #92400e !important;
+    }
+    html[data-theme="light"] #plan-global-header .plan-header-kpi-pendiente.is-incident #plan-header-pendiente {
+      color: #b45309 !important;
+    }
+    #plan-global-header #plan-header-products-summary > div {
+      background-color: var(--clr-surface);
+      border-color: var(--clr-border);
+    }
+
     /* Altura y datos operativos críticos en torres */
     .digital-loading-card [class*="text-[10px]"] strong,
     .digital-loading-card strong.card-boxes {
@@ -505,11 +545,23 @@
     }
     .theme-pdf-export #print-doc-header {
       display: block !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+      overflow-x: hidden !important;
       border-color: #0f172a !important;
       color: #0f172a !important;
     }
     .theme-pdf-export #print-doc-header * {
       color: #0f172a !important;
+    }
+    .theme-pdf-export #print-header-products-summary {
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+      display: flex !important;
+      flex-wrap: wrap !important;
+      overflow-x: hidden !important;
     }
     .theme-pdf-export #print-articles-summary {
       border-color: #cbd5e1 !important;
@@ -621,10 +673,22 @@
       }
       #print-doc-header {
         display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        overflow-x: hidden !important;
         border-color: #0f172a !important;
       }
       #print-doc-header * {
         color: #0f172a !important;
+      }
+      #print-header-products-summary {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        overflow-x: hidden !important;
       }
       #print-articles-summary {
         border-color: #cbd5e1 !important;
@@ -926,7 +990,7 @@
                 <span>Con incidencia: <strong id="ana-error-lines" class="text-amber-400">0</strong></span>
               </div>
               <div id="ana-demands-breakdown" class="flex flex-wrap gap-1.5 pt-1"></div>
-              <div id="ana-platform-demands" class="space-y-1 max-h-36 overflow-y-auto pt-1"></div>
+              <div id="ana-platform-demands" class="space-y-1 pt-1"></div>
             </div>
           </details>
         </div>
@@ -977,33 +1041,115 @@
       </div>
       
       <!-- Cabecera Exclusiva para Impresión A4 / PDF (Landscape Hoja Única) -->
-      <div id="print-doc-header" class="hidden pb-2 mb-2 border-b-2 border-slate-900">
-        <div class="flex items-baseline justify-between">
-          <div class="flex items-center gap-3">
-            <span class="font-black text-base text-slate-900 tracking-wider uppercase">PLAN DE CARGA</span>
-            <span class="text-slate-400 font-bold">|</span>
-            <span class="text-xs font-semibold text-slate-700">Fecha de entrega: <strong id="print-delivery-date" class="text-slate-900">--/--/----</strong></span>
-            <span id="print-emission-time" class="hidden"></span>
+      <div id="print-doc-header" class="hidden pb-2 mb-2 border-b-2 border-slate-900 w-full box-border">
+        <!-- Fila Superior: Título a la izquierda | PEDIDO ORIGINAL en esquina superior derecha -->
+        <div class="flex items-start justify-between border-b border-slate-300 pb-1.5 gap-4">
+          <div class="space-y-0.5">
+            <div class="flex items-center gap-2">
+              <span class="font-black text-base text-slate-900 tracking-wider uppercase">PLAN DE CARGA</span>
+              <span class="text-slate-400 font-bold">|</span>
+              <span class="text-xs font-semibold text-slate-700">ENTREGA: <strong id="print-delivery-date" class="text-slate-900 font-bold">--/--/----</strong></span>
+              <span id="print-emission-time" class="hidden"></span>
+            </div>
+            <span class="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Hoja de Expedición Muelle</span>
           </div>
-          <span class="text-[10px] font-mono text-slate-500 uppercase tracking-wider">Hoja de Expedición Muelle</span>
+
+          <!-- REFERENCIA SEPARADA: PEDIDO ORIGINAL (ESQUINA SUPERIOR DERECHA) -->
+          <div id="print-header-demandado-box" class="text-right px-2.5 py-1 rounded border border-slate-300 bg-slate-50 flex-shrink-0">
+            <span class="text-[8px] font-bold uppercase tracking-wider text-slate-500 block">PEDIDO ORIGINAL</span>
+            <div class="flex items-baseline justify-end gap-1">
+              <strong id="print-header-demandado" class="text-sm font-bold font-mono text-slate-700">0</strong>
+              <span class="text-[9px] font-mono font-medium text-slate-500">CJS</span>
+            </div>
+          </div>
         </div>
-        <!-- Resumen Global de Cajas Servidas por Artículo (Fase 16.6+) -->
-        <div id="print-articles-summary" class="mt-1.5 pt-1.5 border-t border-slate-200 flex items-center justify-between text-xs">
-          <div class="flex items-center gap-3 flex-wrap">
-            <span class="font-bold text-slate-800 text-[10px] uppercase tracking-wider">TOTALES SERVIDOS:</span>
-            <div id="print-articles-totals-list" class="flex items-center gap-2 flex-wrap font-mono text-xs font-bold text-slate-900"></div>
+
+        <!-- Fila Intermedia: SERVIDO dominante a la izquierda | PENDIENTE secundario -->
+        <div class="mt-2 flex items-center justify-between text-xs gap-4">
+          <!-- SERVIDO (PROTAGONISTA) + % DEL PEDIDO SERVIDO -->
+          <div class="space-y-0.5">
+            <span class="text-[9px] font-black uppercase tracking-wider text-slate-600 block">SERVIDO</span>
+            <div class="flex items-baseline gap-1.5">
+              <strong id="print-header-servido" class="text-2xl font-black font-mono text-slate-900 leading-none">0</strong>
+              <span class="text-xs font-bold font-mono text-slate-700">CJS</span>
+            </div>
+            <div id="print-header-rate" class="text-[10px] font-mono font-bold text-slate-800 tracking-tight pt-0.5">— % DEL PEDIDO SERVIDO</div>
           </div>
-          <div class="font-mono text-xs font-bold text-slate-800 whitespace-nowrap">
-            TOTAL: <span id="print-grand-total-boxes" class="text-slate-900">0</span> cjs
+
+          <!-- PENDIENTE (SECUNDARIO) -->
+          <div id="print-header-pendiente-wrap" class="px-3 py-1 rounded border border-slate-300 bg-slate-50 font-mono text-xs font-bold text-slate-800">
+            <strong id="print-header-pendiente">0</strong> CJS PENDIENTES
+          </div>
+        </div>
+
+        <!-- Fila Inferior: RESUMEN DE LO SERVIDO (Ancho completo 100%, flex-wrap sin clipping) -->
+        <div class="mt-2 pt-1.5 border-t border-slate-200 w-full box-border">
+          <div class="text-[9px] font-bold uppercase tracking-wider text-slate-800 mb-1">RESUMEN DE LO SERVIDO:</div>
+          <div id="print-header-products-summary" class="flex flex-wrap items-center gap-1.5 font-mono text-xs text-slate-800 w-full box-border"></div>
+          <div class="hidden">
+            <div id="print-articles-totals-list"></div>
+            <span id="print-grand-total-boxes">0</span>
           </div>
         </div>
       </div>
 
-      <!-- Título de Sección en Pantalla -->
-      <div class="no-print flex items-baseline justify-between border-b border-[#22252A] pb-2">
-        <div>
-          <h2 class="text-lg font-bold uppercase tracking-tight text-[#EDEDEF]">PLAN DE CARGA</h2>
-          <span class="text-xs font-medium uppercase tracking-wider text-[#5E6470]">Expedición organizada por plataforma</span>
+      <!-- Cabecera Global del Plan de Carga (Entrega Activa) -->
+      <div id="plan-global-header" class="no-print rounded-lg bg-[#16181B] border border-[#22252A] p-4 space-y-3.5">
+        <!-- Fila Superior: Título y Fecha a la izquierda | PEDIDO ORIGINAL en esquina superior derecha -->
+        <div class="flex items-start justify-between border-b border-[#22252A] pb-2.5 gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2.5">
+              <h2 class="text-xs font-black uppercase tracking-wider text-[#8A8F98]">PLAN DE CARGA</h2>
+              <span class="text-[#383D45]">|</span>
+              <div class="text-xs sm:text-sm font-mono font-bold text-[#EDEDEF]">
+                ENTREGA: <span id="plan-header-delivery-date" class="text-white">--/--/----</span>
+              </div>
+            </div>
+            <span class="text-[10px] font-mono uppercase tracking-wider text-[#5E6470] block">Hoja de Expedición Digital</span>
+          </div>
+
+          <!-- REFERENCIA SEPARADA: PEDIDO ORIGINAL (ESQUINA SUPERIOR DERECHA) -->
+          <div id="plan-header-demandado-box" class="plan-header-kpi-demandado text-right px-3 py-1.5 rounded-lg bg-[#121316] border border-[#22252A] flex-shrink-0">
+            <span class="text-[9px] font-bold uppercase tracking-wider text-[#5E6470] block">PEDIDO ORIGINAL</span>
+            <div class="flex items-baseline justify-end gap-1.5">
+              <span id="plan-header-demandado" class="text-base sm:text-lg font-mono font-bold text-[#8A8F98] tabular-nums tracking-tight">0</span>
+              <span class="text-[10px] font-mono font-semibold uppercase text-[#5E6470]">CJS</span>
+            </div>
+            <span class="text-[9px] font-mono text-[#5E6470] block">Volumen solicitado</span>
+          </div>
+        </div>
+
+        <!-- PRINCIPAL: SERVIDO (PROTAGONISTA ABSOLUTO) -->
+        <div class="py-1 plan-header-kpi-servido">
+          <span class="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#8A8F98] block">SERVIDO</span>
+          <div class="flex items-baseline gap-2.5">
+            <span id="plan-header-servido" class="text-3xl sm:text-5xl font-mono font-extrabold font-black text-white tabular-nums tracking-tight leading-none">—</span>
+            <span class="text-sm sm:text-base font-mono font-bold uppercase text-[#8A8F98]">CJS</span>
+          </div>
+          <!-- SUBINDICADOR: X % DEL PEDIDO SERVIDO -->
+          <div id="plan-header-service-rate-wrapper" class="flex items-center gap-1.5 pt-1">
+            <span id="plan-header-rate-dot" class="w-2.5 h-2.5 rounded-full bg-[#5E6470]"></span>
+            <span id="plan-header-service-rate" class="text-xs sm:text-sm font-mono font-bold text-[#8A8F98] tracking-tight">— % DEL PEDIDO SERVIDO</span>
+          </div>
+        </div>
+
+        <!-- SECUNDARIO: PENDIENTE (FILA INDEPENDIENTE, MENOR PESO QUE SERVIDO) -->
+        <div class="pt-2 border-t border-[#22252A]/80 flex items-center justify-between flex-wrap gap-2">
+          <div id="plan-header-pendiente-wrap" class="plan-header-kpi-pendiente inline-flex items-center gap-2 px-3 py-1.5 rounded border border-[#22252A] bg-[#121316] transition-colors">
+            <span id="plan-header-pendiente-icon" class="text-xs">📦</span>
+            <span class="text-xs font-mono font-semibold text-[#8A8F98]">
+              <strong id="plan-header-pendiente" class="font-bold text-[#EDEDEF]">0</strong> <span id="plan-header-pendiente-label">CJS PENDIENTES</span>
+            </span>
+          </div>
+          <span class="text-[10px] font-mono text-[#5E6470] italic">Diferencia respecto al pedido</span>
+        </div>
+
+        <!-- RESUMEN DE LO SERVIDO (ÚNICAMENTE CANTIDADES SERVIDAS) -->
+        <div class="border-t border-[#22252A] pt-2.5 space-y-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-[#8A8F98] block">RESUMEN DE LO SERVIDO</span>
+          <div id="plan-header-products-summary" class="flex items-center gap-2 flex-wrap text-xs font-mono">
+            <span class="text-[#5E6470] italic text-xs">Sin datos de servicio</span>
+          </div>
         </div>
       </div>
 

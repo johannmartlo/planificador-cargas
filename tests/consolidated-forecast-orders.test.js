@@ -983,18 +983,38 @@ check('Caso I3 · Carga MIXTA con DÉFICIT muestra demanda, servido/pendiente gl
     stock: { PERA_RAMA: 40 }
   });
 
-  const doc = createDocument('<div id="platform-plan-cards-container"></div>');
+  const doc = createDocument(`
+    <div id="plan-global-header">
+      <span id="plan-header-delivery-date"></span>
+      <span id="plan-header-servido"></span>
+      <span id="plan-header-demandado"></span>
+      <span id="plan-header-pendiente"></span>
+      <div id="plan-header-products-summary"></div>
+    </div>
+    <div id="platform-plan-cards-container"></div>
+  `);
   global.document = doc;
   const controller = new UIController(state);
   controller.bindDOM(doc);
+  controller.renderPlanGlobalHeader(plan);
   controller.renderPlatformPlan(plan);
 
+  const headerHtml = doc.serialize(doc.getElementById('plan-global-header'));
   const cardHtml = doc.serialize(doc.getElementById('platform-plan-cards-container'));
-  // Debe mostrar demanda 55, servido 40, pendiente 15
-  assert.ok(cardHtml.includes('55'), 'Muestra demanda total 55');
-  assert.ok(cardHtml.includes('40'), 'Muestra servido 40');
-  assert.ok(cardHtml.includes('15'), 'Muestra pendiente 15');
+
+  // V4.5: Demanda 55, servido 40, pendiente 15 se concentran en la cabecera global
+  assert.ok(headerHtml.includes('55'), 'Cabecera global muestra demanda total 55');
+  assert.ok(headerHtml.includes('40'), 'Cabecera global muestra servido 40');
+  assert.ok(headerHtml.includes('15'), 'Cabecera global muestra pendiente 15');
+
+  // Tarjeta de plataforma: representa exclusivamente la carga física servida (40 cajas)
+  assert.ok(cardHtml.includes('40'), 'Muestra carga física servida 40');
   assert.ok(cardHtml.includes('25 ANTICIPADO · 30 PREVISIÓN'), 'Muestra procedencia de la demanda');
+
+  // V4.5: Plataformas sin bloque DEMANDA/SERVIDO/PENDIENTE ni (faltan X)
+  assert.ok(!cardHtml.includes('Demanda:'), 'Tarjeta sin bloque administrativo de demanda');
+  assert.ok(!cardHtml.includes('faltan'), 'Tarjeta sin (faltan X)');
+
   // NO debe inventar un reparto servido tipo "25 ANTICIPADO servido" o "15 PREVISION servido"
   assert.ok(!cardHtml.includes('ANTICIPADO servido'), 'No atribuye servido a anticipado');
   assert.ok(!cardHtml.includes('PREVISIÓN servido'), 'No atribuye servido a previsión');

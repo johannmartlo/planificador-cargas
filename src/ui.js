@@ -263,6 +263,113 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     return { prodLabel, varLabel, fullLabel, pillLabel };
   }
 
+  function formatProductArticleName(productId, varietyId) {
+    if (productId === 'PERA_RAMA') return 'Pera Rama';
+    if (productId === 'COCKTAIL_ROMANTICO') {
+      if (varietyId === 'CONSABOR') return 'Cocktail Consabor';
+      if (varietyId === 'SAO_PAULO') return 'Cocktail Sao Paulo';
+      if (varietyId === 'SUNSTREAM') return 'Cocktail Sunstream';
+      if (varietyId) return `Cocktail ${varietyId}`;
+      return 'Cocktail Romántico';
+    }
+    if (productId === 'CHERRY_RAMA') {
+      if (varietyId === 'SUNSTREAM') return 'Cherry Sunstream';
+      return 'Cherry Rama';
+    }
+    return String(productId || '').replace(/_/g, ' ');
+  }
+
+  /**
+   * V5: Calcula el porcentaje de servicio respecto al pedido.
+   * Redondea al porcentaje entero (sin decimales).
+   * Si pedido <= 0 o no es un número válido, devuelve null.
+   * Si servido > pedido, supera el 100% legítimamente.
+   * @param {number} servido
+   * @param {number} pedido
+   * @returns {number|null}
+   */
+  function computeServiceRate(servido, pedido) {
+    const p = Number(pedido);
+    if (!Number.isFinite(p) || p <= 0) {
+      return null;
+    }
+    const s = Number(servido);
+    const val = Number.isFinite(s) ? s : 0;
+    return Math.round((val / p) * 100);
+  }
+
+  /**
+   * V5: Formatea el porcentaje del pedido servido.
+   * Literal exigido: "X % DEL PEDIDO SERVIDO" o "— % DEL PEDIDO SERVIDO".
+   * @param {number} servido
+   * @param {number} pedido
+   * @returns {string}
+   */
+  function formatServiceRateText(servido, pedido) {
+    const rate = computeServiceRate(servido, pedido);
+    if (rate === null) {
+      return '— % DEL PEDIDO SERVIDO';
+    }
+    return `${rate} % DEL PEDIDO SERVIDO`;
+  }
+
+  function computeDeliveryProductsSummary(planningResult, orders = [], targetDate = null) {
+    const productsMap = {};
+
+    if (planningResult && Array.isArray(planningResult.allocations) && planningResult.allocations.length > 0) {
+      for (const a of planningResult.allocations) {
+        const prodName = formatProductArticleName(a.productId, a.varietyId);
+        const key = `${a.productId}::${a.varietyId || 'STANDARD'}`;
+        if (!productsMap[key]) {
+          productsMap[key] = {
+            productId: a.productId,
+            varietyId: a.varietyId,
+            name: prodName,
+            requested: 0,
+            allocated: 0,
+            missing: 0
+          };
+        }
+        productsMap[key].requested += Number(a.requestedQuantity) || 0;
+        productsMap[key].allocated += Number(a.allocatedQuantity) || 0;
+        productsMap[key].missing += Number(a.missingQuantity) || 0;
+      }
+    } else {
+      const activeOrders = Array.isArray(orders) ? orders.filter(o => {
+        if (!o.active) return false;
+        if (!targetDate) return true;
+        const d = o.fechaEntrega || o.deliveryDate;
+        return !d || d === targetDate || d === 'Sin fecha';
+      }) : [];
+
+      for (const o of activeOrders) {
+        const prodName = formatProductArticleName(o.productId, o.varietyId);
+        const key = `${o.productId}::${o.varietyId || 'STANDARD'}`;
+        if (!productsMap[key]) {
+          productsMap[key] = {
+            productId: o.productId,
+            varietyId: o.varietyId,
+            name: prodName,
+            requested: 0,
+            allocated: null,
+            missing: null
+          };
+        }
+        productsMap[key].requested += Number(o.cajas) || 0;
+      }
+    }
+
+    const preferredOrder = ['PERA_RAMA', 'COCKTAIL_ROMANTICO', 'CHERRY_RAMA'];
+    return Object.values(productsMap).sort((a, b) => {
+      const idxA = preferredOrder.indexOf(a.productId);
+      const idxB = preferredOrder.indexOf(b.productId);
+      if (idxA !== -1 && idxB !== -1 && idxA !== idxB) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
   // =========================================================================
   // 1. AppState: Estado central de la aplicación
   // =========================================================================
@@ -1221,11 +1328,17 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     const totalPallets = model.totalPallets;
     const totalPalletSlots = model.totalPalletSlots;
 
+    const rateText = formatServiceRateText(totalAlloc, totalReq);
+    const pendingBoxes = Math.max(0, totalReq - totalAlloc);
+
     lines.push('TOTAL');
-    lines.push(`📦 ${totalReq} cajas`);
-    lines.push(`🟢 ${totalAlloc} asignadas`);
-    if (totalMissing > 0) {
-      lines.push(`⚠️ ${totalMissing} pendientes`);
+    lines.push(`🟢 *SERVIDO: ${totalAlloc} cjs*`);
+    lines.push(`   └ ${rateText}`);
+    lines.push(`📦 PEDIDO: ${totalReq} cajas`);
+    if (pendingBoxes > 0) {
+      lines.push(`⚠️ PENDIENTE: ${pendingBoxes} cjs`);
+    } else {
+      lines.push(`✓ 0 cjs pendientes`);
     }
     lines.push(`🏢 ${totalTruckSlots} plataformas`);
     const slotWord = totalPalletSlots === 1 ? 'hueco de palet' : 'huecos de palet';
@@ -1233,6 +1346,17 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     const palWord = totalPallets === 1 ? 'palet físico' : 'palets físicos';
     lines.push(`📦 ${totalPallets} ${palWord}`);
     lines.push('');
+
+    // RESUMEN DE LO SERVIDO
+    const prodSummaries = computeDeliveryProductsSummary(planningResult, orders, rawDeliveryDate);
+    const servedProdSummaries = prodSummaries.filter(p => (p.allocated || 0) > 0);
+    if (servedProdSummaries.length > 0) {
+      lines.push('*RESUMEN DE LO SERVIDO*');
+      for (const p of servedProdSummaries) {
+        lines.push(`• ${p.name}: ${p.allocated} CJS`);
+      }
+      lines.push('');
+    }
 
     // Helpers
     const getProductLabel = (productId, varietyId) => {
@@ -1276,11 +1400,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
 
         for (const item of slot.items) {
           const prodName = getProductLabel(item.productId, item.varietyId);
-          let extra = '';
-          if (item.missingQuantity > 0) {
-            extra = ` (Faltan ${item.missingQuantity} cjs)`;
-          }
-          lines.push(`• ${prodName}: ${item.totalBoxes} cjs · ${item.palletType} ×${item.palletCount}${extra}`);
+          lines.push(`• ${prodName}: ${item.totalBoxes} cjs · ${item.palletType} ×${item.palletCount}`);
         }
         if (index < model.slots.length - 1) {
           lines.push('');
@@ -2920,6 +3040,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.renderMobileKpis(this.state.planningResult);
       this.syncMobileMoreContext(this.state.planningResult);
       this.updateWorkflowBar();
+      this.renderPlanGlobalHeader(this.state.planningResult);
     }
     fillStock(stockObj) {
       if (!stockObj) return;
@@ -3013,6 +3134,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.renderComparisonDetails();
       this.renderActionsToolbar(result);
       this.renderExecutiveSummary(result);
+      this.renderPlanGlobalHeader(result);
       this.renderPlatformPlan(result);
       this.renderPlatformTable(result);
       this.renderPalletization(result);
@@ -3203,16 +3325,153 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.renderPrintHeaderSummary(result);
     }
 
+    renderPlanGlobalHeader(result) {
+      if (typeof document === 'undefined') return;
+
+      const container = document.getElementById('plan-global-header');
+      if (!container) return;
+
+      const dateEl = document.getElementById('plan-header-delivery-date');
+      const servidoEl = document.getElementById('plan-header-servido');
+      const demandadoEl = document.getElementById('plan-header-demandado');
+      const pendienteEl = document.getElementById('plan-header-pendiente');
+      const rateEl = document.getElementById('plan-header-service-rate');
+      const rateDotEl = document.getElementById('plan-header-rate-dot');
+      const pendWrapEl = document.getElementById('plan-header-pendiente-wrap');
+      const pendIconEl = document.getElementById('plan-header-pendiente-icon');
+      const productsSummaryEl = document.getElementById('plan-header-products-summary');
+
+      // 1. Fecha de entrega activa
+      const rawDate = (result && (result.selectedDeliveryDate || result.targetDeliveryDate || result.deliveryDate || (result.detectedDates && result.detectedDates[0])))
+        || (this.state && this.state.selectedDeliveryDate)
+        || '';
+      const formattedDate = rawDate ? formatDateWithDay(rawDate) : 'Sin fecha';
+      if (dateEl) {
+        dateEl.textContent = formattedDate.toUpperCase();
+      }
+
+      // 2. Jerarquía V5: SERVIDO (protagonista), PEDIDO (referencia), % DEL PEDIDO SERVIDO, PENDIENTE (diferencia)
+      if (result && Array.isArray(result.allocations) && result.allocations.length > 0) {
+        const totalServido = result.allocations.reduce((s, a) => s + (a.allocatedQuantity || 0), 0);
+        const totalDemandado = (result.demandSummary && result.demandSummary.totalRequested !== undefined)
+          ? result.demandSummary.totalRequested
+          : result.allocations.reduce((s, a) => s + (a.requestedQuantity || 0), 0);
+        const totalPendiente = Math.max(0, totalDemandado - totalServido);
+        const serviceRateText = formatServiceRateText(totalServido, totalDemandado);
+
+        if (servidoEl) servidoEl.textContent = totalServido;
+        if (demandadoEl) demandadoEl.textContent = totalDemandado;
+        if (rateEl) rateEl.textContent = serviceRateText;
+        if (rateDotEl) {
+          if (totalDemandado > 0 && totalServido >= totalDemandado) {
+            rateDotEl.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]';
+          } else if (totalDemandado > 0) {
+            rateDotEl.className = 'w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]';
+          } else {
+            rateDotEl.className = 'w-2 h-2 rounded-full bg-[#5E6470]';
+          }
+        }
+
+        if (pendienteEl) {
+          pendienteEl.textContent = totalPendiente;
+          pendienteEl.className = totalPendiente > 0 ? 'font-bold text-amber-400' : 'font-bold text-[#EDEDEF]';
+        }
+
+        const pendContainer = pendWrapEl || (pendienteEl && pendienteEl.closest ? pendienteEl.closest('.plan-header-kpi-pendiente') : null);
+        if (pendContainer && pendContainer.classList) {
+          if (totalPendiente > 0) {
+            pendContainer.classList.add('is-incident');
+            if (pendIconEl) pendIconEl.textContent = '⚠️';
+          } else {
+            pendContainer.classList.remove('is-incident');
+            if (pendIconEl) pendIconEl.textContent = '✓';
+          }
+        }
+      } else {
+        // Plan no calculado todavía: PEDIDO conocido, SERVIDO = —, % = — %, PENDIENTE = —
+        const activeOrders = (this.state && typeof this.state.getActiveDemandOrders === 'function')
+          ? this.state.getActiveDemandOrders(this.state.selectedDeliveryDate)
+          : [];
+        const totalDemandado = activeOrders.reduce((s, o) => s + (o.cajas || 0), 0);
+
+        if (servidoEl) servidoEl.textContent = '—';
+        if (demandadoEl) demandadoEl.textContent = totalDemandado;
+        if (rateEl) rateEl.textContent = '— % DEL PEDIDO SERVIDO';
+        if (rateDotEl) rateDotEl.className = 'w-2 h-2 rounded-full bg-[#5E6470]';
+        if (pendienteEl) {
+          pendienteEl.textContent = '—';
+          pendienteEl.className = 'font-bold text-[#EDEDEF]';
+        }
+
+        const pendContainer = pendWrapEl || (pendienteEl && pendienteEl.closest ? pendienteEl.closest('.plan-header-kpi-pendiente') : null);
+        if (pendContainer && pendContainer.classList) {
+          pendContainer.classList.remove('is-incident');
+        }
+        if (pendIconEl) pendIconEl.textContent = '📦';
+      }
+
+      // 3. Resumen por producto
+      if (productsSummaryEl) {
+        const orders = (this.state && this.state.orders) || [];
+        const products = computeDeliveryProductsSummary(result, orders, rawDate);
+        const servedProducts = products.filter(p => (p.allocated || 0) > 0);
+        if (servedProducts.length === 0) {
+          productsSummaryEl.innerHTML = '<span class="text-[#5E6470] italic text-xs">Sin cajas servidas</span>';
+        } else {
+          productsSummaryEl.innerHTML = servedProducts.map(p => `
+            <div class="inline-flex items-baseline gap-1.5 py-1 px-2.5 rounded bg-[#121316] border border-[#22252A] text-xs">
+              <span class="font-semibold text-[#EDEDEF]">${escapeHtml(p.name)}</span>
+              <span class="font-mono font-bold text-white">${p.allocated} <span class="text-[10px] font-semibold text-[#8A8F98]">CJS</span></span>
+            </div>
+          `).join('');
+        }
+      }
+    }
+
     renderPrintHeaderSummary(result) {
       if (typeof document === 'undefined') return;
       const listEl = document.getElementById('print-articles-totals-list');
       const grandTotalEl = document.getElementById('print-grand-total-boxes');
       const printDateEl = document.getElementById('print-delivery-date');
+      const printServidoEl = document.getElementById('print-header-servido');
+      const printDemandadoEl = document.getElementById('print-header-demandado');
+      const printPendienteEl = document.getElementById('print-header-pendiente');
+      const printRateEl = document.getElementById('print-header-rate');
+      const printProdSummaryEl = document.getElementById('print-header-products-summary');
 
       if (printDateEl && result) {
         const rawDate = result.deliveryDate || (result.detectedDates && result.detectedDates[0]) || '';
         const dayOfWeek = rawDate ? getDayOfWeekName(rawDate) : '';
         printDateEl.textContent = dayOfWeek ? `${dayOfWeek} ${rawDate}` : (rawDate || '--/--/----');
+      }
+
+      if (result && Array.isArray(result.allocations)) {
+        const totalServido = result.allocations.reduce((s, a) => s + (a.allocatedQuantity || 0), 0);
+        const totalDemandado = (result.demandSummary && result.demandSummary.totalRequested !== undefined)
+          ? result.demandSummary.totalRequested
+          : result.allocations.reduce((s, a) => s + (a.requestedQuantity || 0), 0);
+        const totalPendiente = Math.max(0, totalDemandado - totalServido);
+        const rateText = formatServiceRateText(totalServido, totalDemandado);
+
+        if (printServidoEl) printServidoEl.textContent = totalServido;
+        if (printDemandadoEl) printDemandadoEl.textContent = totalDemandado;
+        if (printPendienteEl) printPendienteEl.textContent = totalPendiente;
+        if (printRateEl) printRateEl.textContent = rateText;
+
+        if (printProdSummaryEl) {
+          const rawDate = result.deliveryDate || (result.detectedDates && result.detectedDates[0]) || '';
+          const products = computeDeliveryProductsSummary(result, (this.state && this.state.orders) || [], rawDate);
+          const servedProducts = products.filter(p => (p.allocated || 0) > 0);
+          if (servedProducts.length === 0) {
+            printProdSummaryEl.innerHTML = '<span class="text-slate-500 font-normal text-xs">Sin cajas servidas</span>';
+          } else {
+            printProdSummaryEl.innerHTML = servedProducts.map(p => `
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 border border-slate-300 text-[11px] font-bold text-slate-900 tracking-tight whitespace-nowrap">
+                ${escapeHtml(p.name)}: ${p.allocated} CJS
+              </span>
+            `).join('');
+          }
+        }
       }
 
       if (!listEl && !grandTotalEl) return;
@@ -3283,27 +3542,29 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       if (elPlatDemands) {
         const platMap = analysis.demandsByPlatformAndProduct || {};
         const platforms = analysis.platformsFound || [];
-        if (platforms.length === 0) {
+        const platformItems = platforms.map(plat => {
+          const prodParts = [];
+          let totalPlat = 0;
+          for (const prodId of Object.keys(platMap)) {
+            const qty = (platMap[prodId] && platMap[prodId][plat]) || 0;
+            if (qty > 0) {
+              const shortProd = prodId.replace('TOMATE_', '').replace(/_RAMA|_ROMANTICO/g, '');
+              prodParts.push(`${shortProd}: ${qty}`);
+              totalPlat += qty;
+            }
+          }
+          return { plat, totalPlat, prodParts };
+        }).filter(item => item.totalPlat > 0);
+
+        if (platformItems.length === 0) {
           elPlatDemands.innerHTML = '<span class="text-[#5E6470] italic text-xs">Sin plataformas detectadas</span>';
         } else {
-          elPlatDemands.innerHTML = platforms.map(plat => {
-            const prodParts = [];
-            let totalPlat = 0;
-            for (const prodId of Object.keys(platMap)) {
-              const qty = (platMap[prodId] && platMap[prodId][plat]) || 0;
-              if (qty > 0) {
-                const shortProd = prodId.replace('TOMATE_', '').replace(/_RAMA|_ROMANTICO/g, '');
-                prodParts.push(`${shortProd}: ${qty}`);
-                totalPlat += qty;
-              }
-            }
-            return `
-              <div class="px-2.5 py-1 rounded bg-[#16181B] border border-[#22252A] text-xs flex items-center justify-between">
-                <span class="font-bold text-[#EDEDEF]">${plat}</span>
-                <span class="text-[11px] text-[#8A8F98] font-mono">${prodParts.join(' | ')} <strong class="text-[#EDEDEF] font-bold">(${totalPlat} cjs)</strong></span>
-              </div>
-            `;
-          }).join('');
+          elPlatDemands.innerHTML = platformItems.map(({ plat, totalPlat, prodParts }) => `
+            <div class="px-2.5 py-1 rounded bg-[#16181B] border border-[#22252A] text-xs flex items-center justify-between">
+              <span class="font-bold text-[#EDEDEF]">${plat}</span>
+              <span class="text-[11px] text-[#8A8F98] font-mono">${prodParts.join(' | ')} <strong class="text-[#EDEDEF] font-bold">(${totalPlat} cjs)</strong></span>
+            </div>
+          `).join('');
         }
       }
 
@@ -3770,6 +4031,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       }).join('');
 
       targetEl.innerHTML = htmlCards;
+      this.renderPlanGlobalHeader(this.state.planningResult);
     }
 
     openAddOrderModal() {
@@ -4295,10 +4557,6 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       container.innerHTML = model.slots.map(slot => {
         // Filas de productos en la plataforma
         const productRowsHTML = slot.items.map(item => {
-          const missingText = item.missingQuantity > 0
-            ? ` <span class="no-print text-rose-400 font-semibold text-[10px] block sm:inline">(faltan ${item.missingQuantity})</span>`
-            : '';
-
           let prodDisplay = item.productLabel;
           if (item.productId === 'PERA_RAMA') {
             prodDisplay = 'Pera Rama';
@@ -4321,7 +4579,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
           return `
             <div class="grid grid-cols-12 gap-1 items-center py-1 px-1 border-b border-[#22252A] last:border-b-0 text-xs">
               <div class="col-span-6 font-medium text-[#EDEDEF] text-prod truncate" title="${prodDisplay}">
-                <span>${prodDisplay}</span>${missingText}
+                <span>${prodDisplay}</span>
               </div>
               <div class="col-span-3 text-right font-mono font-bold text-[#EDEDEF] card-boxes tabular-nums">
                 ${item.totalBoxes}
@@ -4433,17 +4691,6 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
           mixedDetailHTML = `<div class="text-[10px] font-mono text-[#8A8F98] mt-0.5 tracking-tight font-medium">${escapeHtml(prov.detailText)}</div>`;
         }
 
-        const platMissing = slot.items.reduce((s, it) => s + (it.missingQuantity || 0), 0);
-        const platRequested = slot.items.reduce((s, it) => s + (it.requestedQuantity || it.totalBoxes), 0);
-        let deficitNoticeHTML = '';
-        if (platMissing > 0) {
-          deficitNoticeHTML = `
-            <div class="mt-1 px-2 py-0.5 rounded bg-rose-950/30 border border-rose-900/40 text-[10px] font-mono text-rose-300">
-              Demanda: <strong>${platRequested}</strong> cjs · Servido: <strong class="text-white">${slot.totalBoxes}</strong> cjs · Pendiente: <strong class="text-rose-400">${platMissing}</strong> cjs
-            </div>
-          `;
-        }
-
         return `
           <div data-platform="${slot.platform}" class="digital-loading-card bg-[#16181B] rounded-lg border border-[#22252A] p-3.5 hover:border-[#383D45] text-[#EDEDEF] transition-colors break-inside-avoid print:p-2 print:border-slate-400 print:shadow-none">
             <div class="flex items-center justify-between">
@@ -4457,7 +4704,6 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
               </div>
               <span class="text-xs font-mono font-medium text-[#8A8F98] card-badge">${palletSlotLabel}${physicalPalletSub}</span>
             </div>
-            ${deficitNoticeHTML}
             <div class="mt-0.5 flex items-baseline justify-between">
               <span class="text-2xl font-mono font-extrabold text-[#EDEDEF] card-boxes tabular-nums tracking-tight">${slot.totalBoxes}</span>
               <span class="text-[11px] font-mono font-semibold uppercase tracking-wider text-[#5E6470]">cajas</span>
@@ -4996,6 +5242,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
   UIController.buildTruckSlotsModel = buildTruckSlotsModel;
   UIController.comparePlanningResults = comparePlanningResults;
   UIController.computeServedTotalsByArticle = computeServedTotalsByArticle;
+  UIController.computeDeliveryProductsSummary = computeDeliveryProductsSummary;
+  UIController.formatProductArticleName = formatProductArticleName;
   UIController.getDayOfWeekName = getDayOfWeekName;
   UIController.formatDateWithDay = formatDateWithDay;
   UIController.derivePlatformProvenance = derivePlatformProvenance;
@@ -5031,6 +5279,23 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
               'CHERRY_RAMA::SUNSTREAM': 100
             });
             uiController.handleGeneratePlan();
+            const res1 = uiController.generatePlan();
+            uiController.renderAll(res1);
+          }
+        } else if (autoKey === 'deficit') {
+          const tsvInput = document.getElementById('tsv-input');
+          if (tsvInput) {
+            tsvInput.value = DATASETS['18_SEP'];
+            uiController.handleAnalyze();
+            uiController.fillStock({
+              'PERA_RAMA': 250,
+              'COCKTAIL_ROMANTICO::SAO_PAULO': 40,
+              'COCKTAIL_ROMANTICO::SUNSTREAM': 30,
+              'CHERRY_RAMA::SUNSTREAM': 80
+            });
+            uiController.handleGeneratePlan();
+            const res2 = uiController.generatePlan();
+            uiController.renderAll(res2);
           }
         }
       }
@@ -5046,6 +5311,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     buildTruckSlotsModel,
     comparePlanningResults,
     computeServedTotalsByArticle,
+    computeDeliveryProductsSummary,
+    formatProductArticleName,
     getMobileProductName,
     getMobileVarietyName,
     MOBILE_VIEWS,
@@ -5054,6 +5321,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     getBasePlatform,
     getProductVarietyDisplay,
     derivePlatformProvenance,
-    getProvenanceBadgeHTML
+    getProvenanceBadgeHTML,
+    computeServiceRate,
+    formatServiceRateText
   };
 });
