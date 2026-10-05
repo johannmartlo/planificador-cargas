@@ -352,23 +352,28 @@
     let sourceDate = null;
 
     if (Array.isArray(demandOrders) && demandOrders.length > 0) {
-      allParsedLines = demandOrders.map((ord, idx) => ({
-        id: ord.id || `ord_${idx + 1}`,
-        rawText: ord.sourceLine || `${ord.platform} ${ord.fechaEntrega || ord.deliveryDate || ''} ${ord.productId} ${ord.cajas !== undefined ? ord.cajas : ord.requestedQuantity}`,
-        lineNumber: idx + 1,
-        platform: String(ord.platform || '').trim().toUpperCase(),
-        deliveryDate: ord.fechaEntrega || ord.deliveryDate || '',
-        sourceDate: null,
-        gisCode: ord.gisCode || '',
-        productDescription: ord.productDescription || ord.productId,
-        productId: String(ord.productId || '').trim().toUpperCase(),
-        varietyId: ord.varietyId ? String(ord.varietyId).trim().toUpperCase() : null,
-        requestedQuantity: Number(ord.cajas !== undefined ? ord.cajas : ord.requestedQuantity) || 0,
-        isValid: ord.estado ? ord.estado === 'ACTIVO' : (ord.isValid !== false),
-        origen: ord.origen || 'MANUAL',
-        estado: ord.estado || 'ACTIVO',
-        parseErrors: []
-      }));
+      allParsedLines = demandOrders.map((ord, idx) => {
+        const orderId = String(ord.id || ord.orderId || `ord_${idx + 1}`).trim();
+        const isActive = (ord.active !== false) && (ord.estado ? ord.estado === 'ACTIVO' : (ord.isValid !== false));
+        return {
+          id: orderId,
+          orderId,
+          rawText: ord.sourceLine || `${ord.platform} ${ord.fechaEntrega || ord.deliveryDate || ''} ${ord.productId} ${ord.cajas !== undefined ? ord.cajas : ord.requestedQuantity}`,
+          lineNumber: idx + 1,
+          platform: String(ord.platform || '').trim().toUpperCase(),
+          deliveryDate: String(ord.fechaEntrega || ord.deliveryDate || '').trim(),
+          sourceDate: null,
+          gisCode: ord.gisCode || '',
+          productDescription: ord.productDescription || ord.productId,
+          productId: String(ord.productId || '').trim().toUpperCase(),
+          varietyId: ord.varietyId ? String(ord.varietyId).trim().toUpperCase() : null,
+          requestedQuantity: Number(ord.cajas !== undefined ? ord.cajas : ord.requestedQuantity) || 0,
+          isValid: isActive,
+          origen: ord.origen || 'MANUAL',
+          estado: ord.estado || (isActive ? 'ACTIVO' : 'INACTIVO'),
+          parseErrors: []
+        };
+      });
       detectedDates = Array.from(new Set(allParsedLines.map(l => l.deliveryDate).filter(Boolean)));
       effectiveDeliveryDate = targetDeliveryDate || (detectedDates && detectedDates[0]) || null;
     } else {
@@ -396,7 +401,11 @@
         }
       }
 
-      allParsedLines = parseResult.lines || [];
+      allParsedLines = (parseResult.lines || []).map((l, idx) => ({
+        ...l,
+        orderId: l.id || `line_${l.lineNumber || idx + 1}`,
+        deliveryDate: String(l.deliveryDate || '').trim()
+      }));
       sourceDate = (allParsedLines.find(l => l.sourceDate) || {}).sourceDate || null;
       detectedDates = parseResult.detectedDates || (parseResult.detectedDate ? [parseResult.detectedDate] : []);
       effectiveDeliveryDate = targetDeliveryDate || parseResult.detectedDate || null;
@@ -440,7 +449,7 @@
     const excludedProductsSet = new Set();
     const excludedPlatformsSet = new Set();
 
-    for (const line of allParsedLines) {
+    for (const line of validLines) {
       const check = isExcluded(line);
       if (check.excluded) {
         excludedDetails.push({
@@ -575,44 +584,83 @@
     }
 
     for (const pId of productKeys) {
-      const platDemandMap = productDemands[pId];
+      // Pedidos activos para este producto comercial
+      const productLines = activeLines.filter(l => l.productId === pId);
+      if (productLines.length === 0) continue;
 
-      // Filtrar y validar locks para este producto:
-      // - FULL + FULL idénticos -> deduplicar a 1 solo lock FULL.
-      // - FULL + FIXED sobre la misma plataforma -> conflicto explícito (LOCK_CONFLICT). No resolver silenciosamente.
-      const productLocksByPlat = new Map();
+      // Construir mapa de demanda por pedido individual y mapa de resolución inversa
+      const solverDemandMap = {};
+      const solverKeyToLine = new Map();
+
+      for (let idx = 0; idx < productLines.length; idx++) {
+        const line = productLines[idx];
+        const baseKey = String(line.orderId || line.id || `line_${line.lineNumber || idx + 1}`).trim();
+        let uniqueKey = baseKey;
+        if (solverDemandMap[uniqueKey] !== undefined) {
+          uniqueKey = `${baseKey}__${idx + 1}`;
+        }
+        solverDemandMap[uniqueKey] = Math.max(0, Math.floor(Number(line.requestedQuantity) || 0));
+        solverKeyToLine.set(uniqueKey, line);
+      }
+
+      // Filtrar y validar locks para este producto
+      const productAdaptedLocks = [];
       if (Array.isArray(locks)) {
         for (const l of locks) {
-          if (l && String(l.productId || '').trim().toUpperCase() === pId && l.platform) {
-            const plat = String(l.platform).trim().toUpperCase();
-            if (!productLocksByPlat.has(plat)) {
-              productLocksByPlat.set(plat, []);
+          if (!l || String(l.productId || '').trim().toUpperCase() !== pId) continue;
+          const lockPlat = l.platform ? String(l.platform).trim().toUpperCase() : null;
+          const lockOrderId = (l.orderId || l.id) ? String(l.orderId || l.id).trim() : null;
+          const lockDate = (l.deliveryDate || l.fechaEntrega) ? String(l.deliveryDate || l.fechaEntrega).trim() : null;
+
+          for (const [sKey, line] of solverKeyToLine.entries()) {
+            let matches = false;
+            if (lockOrderId && (line.orderId === lockOrderId || line.id === lockOrderId)) {
+              matches = true;
+            } else if (!lockOrderId && lockPlat && line.platform === lockPlat) {
+              if (!lockDate || line.deliveryDate === lockDate) {
+                matches = true;
+              }
             }
-            productLocksByPlat.get(plat).push(l);
+            if (matches) {
+              productAdaptedLocks.push({
+                platform: sKey,
+                type: l.type,
+                quantity: l.quantity,
+                varietyId: l.varietyId ? String(l.varietyId).trim().toUpperCase() : null
+              });
+            }
           }
         }
       }
 
+      // Validar conflictos de locks sobre la misma entidad de demanda
+      const locksByTarget = new Map();
+      for (const al of productAdaptedLocks) {
+        if (!locksByTarget.has(al.platform)) locksByTarget.set(al.platform, []);
+        locksByTarget.get(al.platform).push(al);
+      }
+
       const relevantLocks = [];
-      for (const [plat, pLocks] of productLocksByPlat.entries()) {
-        const hasFull = pLocks.some(l => String(l.type || '').toUpperCase() === 'FULL');
-        const hasFixed = pLocks.some(l => String(l.type || '').toUpperCase() === 'FIXED');
+      for (const [targetKey, tLocks] of locksByTarget.entries()) {
+        const hasFull = tLocks.some(l => String(l.type || '').toUpperCase() === 'FULL');
+        const hasFixed = tLocks.some(l => String(l.type || '').toUpperCase() === 'FIXED');
+        const line = solverKeyToLine.get(targetKey);
+        const platDisplay = line ? line.platform : targetKey;
 
         if (hasFull && hasFixed) {
           errors.push({
             code: 'LOCK_CONFLICT',
-            platform: plat,
+            platform: platDisplay,
             productId: pId,
-            message: `Conflicto de bloqueos para ${pId} en plataforma ${plat}: se especificó simultáneamente bloqueo TOTAL (FULL) y FIJO (FIXED).`
+            message: `Conflicto de bloqueos para ${pId} en plataforma ${platDisplay}: se especificó simultáneamente bloqueo TOTAL (FULL) y FIJO (FIXED).`
           });
-          // No elegir silenciosamente uno de los dos
           continue;
         }
 
         if (hasFull) {
-          relevantLocks.push(pLocks.find(l => String(l.type || '').toUpperCase() === 'FULL'));
+          relevantLocks.push(tLocks.find(l => String(l.type || '').toUpperCase() === 'FULL'));
         } else {
-          relevantLocks.push(pLocks[pLocks.length - 1]);
+          relevantLocks.push(tLocks[tLocks.length - 1]);
         }
       }
 
@@ -620,16 +668,13 @@
       // PRODUCTO 1: COCKTAIL ROMÁNTICO (FIFO + RESTRICCIÓN MONOVARIETAL)
       // =====================================================================
       if (pId === COCKTAIL_PRODUCT_ID) {
-        // La variedad física (CONSABOR activa, SUNSTREAM existente, SAO_PAULO histórica)
-        // se determina EXCLUSIVAMENTE por stock/clasificación interna. El producto comercial,
-        // su GIS (16228) y la descripción de previsión no cambian.
         const varietyStocks = {};
         for (const vId of getVarietyIds(COCKTAIL_PRODUCT_ID)) {
           varietyStocks[vId] = getAvailableStock(COCKTAIL_PRODUCT_ID, vId);
         }
 
         const cocktailRes = solveMonovarietalFIFO(
-          platDemandMap,
+          solverDemandMap,
           varietyStocks.SAO_PAULO || 0,
           varietyStocks.SUNSTREAM || 0,
           {
@@ -653,14 +698,21 @@
         }
 
         for (const alloc of cocktailRes.allocations) {
+          const line = solverKeyToLine.get(alloc.platform);
           finalAllocations.push({
-            platform: alloc.platform,
+            orderId: line ? (line.orderId || line.id) : alloc.platform,
+            platform: line ? line.platform : alloc.platform,
+            deliveryDate: line ? (line.deliveryDate || '') : '',
             productId: COCKTAIL_PRODUCT_ID,
             varietyId: alloc.varietyId,
             requestedQuantity: alloc.requestedQuantity,
             allocatedQuantity: alloc.allocatedQuantity,
             missingQuantity: alloc.missingQuantity,
-            allocationMethod: alloc.allocationMethod
+            requestedBoxes: alloc.requestedQuantity,
+            allocatedBoxes: alloc.allocatedQuantity,
+            pendingBoxes: alloc.missingQuantity,
+            allocationMethod: alloc.allocationMethod,
+            origen: line ? (line.origen || 'MANUAL') : 'MANUAL'
           });
 
           if (alloc.allocatedQuantity > 0 && alloc.varietyId) {
@@ -672,13 +724,11 @@
       // PRODUCTOS 2 Y 3: PERA RAMA / CHERRY RAMA / OTROS (HAMILTON ESTÁNDAR)
       // =====================================================================
       else {
-        // Productos monovarietales (p.ej. Cherry Rama => SUNSTREAM, variedad propia e
-        // independiente del Sunstream de Cocktail). Productos sin variedad => null.
         const ownVarieties = getVarietyIds(pId);
         const vId = ownVarieties.length === 1 ? ownVarieties[0] : null;
         const availableStock = getAvailableStock(pId, vId);
 
-        const hamRes = allocateProportionalHamilton(platDemandMap, availableStock, relevantLocks);
+        const hamRes = allocateProportionalHamilton(solverDemandMap, availableStock, relevantLocks);
 
         if (!hamRes.isFeasible && hamRes.errors && hamRes.errors.length > 0) {
           for (const e of hamRes.errors) {
@@ -693,14 +743,21 @@
         }
 
         for (const alloc of hamRes.allocations) {
+          const line = solverKeyToLine.get(alloc.platform);
           finalAllocations.push({
-            platform: alloc.platform,
+            orderId: line ? (line.orderId || line.id) : alloc.platform,
+            platform: line ? line.platform : alloc.platform,
+            deliveryDate: line ? (line.deliveryDate || '') : '',
             productId: pId,
             varietyId: vId,
             requestedQuantity: alloc.requestedQuantity,
             allocatedQuantity: alloc.allocatedQuantity,
             missingQuantity: alloc.missingQuantity,
-            allocationMethod: alloc.allocationMethod
+            requestedBoxes: alloc.requestedQuantity,
+            allocatedBoxes: alloc.allocatedQuantity,
+            pendingBoxes: alloc.missingQuantity,
+            allocationMethod: alloc.allocationMethod,
+            origen: line ? (line.origen || 'MANUAL') : 'MANUAL'
           });
 
           if (alloc.allocatedQuantity > 0) {
@@ -711,24 +768,7 @@
     }
 
     // -----------------------------------------------------------------------
-    // PASO 5: PALETIZACIÓN DE ASIGNACIONES (planPallets)
-    // -----------------------------------------------------------------------
-    const palletRes = planPallets(finalAllocations, DEFAULT_PALLET_RULES, palletConfiguration);
-
-    if (palletRes.warnings && palletRes.warnings.length > 0) {
-      for (const pw of palletRes.warnings) {
-        warnings.push(pw);
-      }
-    }
-
-    if (palletRes.errors && palletRes.errors.length > 0) {
-      for (const pe of palletRes.errors) {
-        errors.push(pe);
-      }
-    }
-
-    // -----------------------------------------------------------------------
-    // PASO 6: CÁLCULO DE STOCK REMANENTE E INTEGRIDAD CUANTITATIVA
+    // PASO 5: CÁLCULO DE STOCK REMANENTE E INTEGRIDAD CUANTITATIVA
     // -----------------------------------------------------------------------
     const stockRemainingList = [];
     for (const [key, item] of stockMap.entries()) {
@@ -748,14 +788,92 @@
     // Ordenar de forma determinista el stock restante
     stockRemainingList.sort((a, b) => a.stockKey.localeCompare(b.stockKey));
 
-    // Determinar factibilidad física global
-    // Factible si no hay errores bloqueantes (los warnings de underfill no invalidan la factibilidad física)
-    const isPhysicallyFeasible = errors.length === 0;
+    // -----------------------------------------------------------------------
+    // PASO 6: PALETIZACIÓN FÍSICA Y PLANES SEGREGADOS POR FECHA
+    // -----------------------------------------------------------------------
+    const plansByDate = {};
+    const dateKeys = Array.from(new Set(finalAllocations.map(a => a.deliveryDate).filter(Boolean)));
+    if (dateKeys.length === 0) {
+      dateKeys.push(effectiveDeliveryDate || '');
+    }
 
-    return {
+    for (const d of dateKeys) {
+      const dateAllocs = finalAllocations.filter(a => !d || a.deliveryDate === d);
+      const datePalletRes = planPallets(dateAllocs, DEFAULT_PALLET_RULES, palletConfiguration);
+
+      const dateDemandByProd = {};
+      const dateDemandByPlat = {};
+      let dateTotalRequested = 0;
+      for (const a of dateAllocs) {
+        dateTotalRequested += (a.requestedQuantity || 0);
+        dateDemandByProd[a.productId] = (dateDemandByProd[a.productId] || 0) + (a.requestedQuantity || 0);
+        dateDemandByPlat[a.platform] = (dateDemandByPlat[a.platform] || 0) + (a.requestedQuantity || 0);
+      }
+
+      plansByDate[d] = {
+        deliveryDate: d || effectiveDeliveryDate,
+        targetDeliveryDate: d || effectiveDeliveryDate,
+        selectedDeliveryDate: d || effectiveDeliveryDate,
+        detectedDates: d ? [d] : detectedDates,
+        sourceDate,
+        demandSummary: {
+          totalRequested: dateTotalRequested,
+          byProduct: dateDemandByProd,
+          byPlatform: dateDemandByPlat
+        },
+        allocations: dateAllocs,
+        totalBoxes: datePalletRes.totalBoxes,
+        totalPallets: datePalletRes.totalPallets,
+        totalPalletSlots: datePalletRes.totalPalletSlots,
+        palletGroups: datePalletRes.groups,
+        palletSummaries: {
+          totalBoxes: datePalletRes.totalBoxes,
+          totalPallets: datePalletRes.totalPallets,
+          totalPalletSlots: datePalletRes.totalPalletSlots,
+          groups: datePalletRes.groups,
+          byPlatform: datePalletRes.summary.byPlatform,
+          byProduct: datePalletRes.summary.byProduct,
+          byPalletType: datePalletRes.summary.byPalletType,
+          stackingPlanByPlatform: datePalletRes.stackingPlanByPlatform
+        },
+        stockRemaining: stockRemainingList,
+        warnings: [...warnings, ...(datePalletRes.warnings || [])],
+        errors: [...errors, ...(datePalletRes.errors || [])],
+        isPhysicallyFeasible: errors.length === 0 && (datePalletRes.errors || []).length === 0
+      };
+    }
+
+    const primaryDateKey = (targetDeliveryDate && plansByDate[targetDeliveryDate])
+      ? targetDeliveryDate
+      : (effectiveDeliveryDate && plansByDate[effectiveDeliveryDate])
+        ? effectiveDeliveryDate
+        : dateKeys[0];
+
+    const activePlan = plansByDate[primaryDateKey] || {
       deliveryDate: effectiveDeliveryDate,
       targetDeliveryDate: effectiveDeliveryDate,
       selectedDeliveryDate: effectiveDeliveryDate,
+      detectedDates,
+      sourceDate,
+      demandSummary: { totalRequested, byProduct: demandByProduct, byPlatform: demandByPlatform },
+      allocations: finalAllocations,
+      totalBoxes: 0,
+      totalPallets: 0,
+      totalPalletSlots: 0,
+      palletGroups: [],
+      palletSummaries: { totalBoxes: 0, totalPallets: 0, totalPalletSlots: 0, groups: [], byPlatform: {}, byProduct: {}, byPalletType: {} },
+      stockRemaining: stockRemainingList,
+      warnings: [],
+      errors: [],
+      isPhysicallyFeasible: false
+    };
+
+    const isPhysicallyFeasible = errors.length === 0 && activePlan.isPhysicallyFeasible;
+
+    return {
+      deliveryDate: activePlan.deliveryDate,
+      targetDeliveryDate: targetDeliveryDate || activePlan.deliveryDate,
+      selectedDeliveryDate: activePlan.deliveryDate,
       detectedDates,
       sourceDate,
       sourceSummary: {
@@ -763,35 +881,27 @@
         validLinesCount: validLines.length,
         lines: allParsedLines
       },
-      demandSummary: {
+      demandSummary: targetDeliveryDate ? activePlan.demandSummary : {
         totalRequested,
         byProduct: demandByProduct,
         byPlatform: demandByPlatform
       },
-      exclusionsSummary: {
-        excludedLinesCount: excludedDetails.length,
-        excludedProducts: Array.from(excludedProductsSet),
-        excludedPlatforms: Array.from(excludedPlatformsSet),
-        details: excludedDetails
+      globalDemandSummary: {
+        totalRequested,
+        byProduct: demandByProduct,
+        byPlatform: demandByPlatform
       },
-      allocations: finalAllocations,
-      totalBoxes: palletRes.totalBoxes,
-      totalPallets: palletRes.totalPallets,
-      totalPalletSlots: palletRes.totalPalletSlots,
-      palletGroups: palletRes.groups,
-      palletSummaries: {
-        totalBoxes: palletRes.totalBoxes,
-        totalPallets: palletRes.totalPallets,
-        totalPalletSlots: palletRes.totalPalletSlots,
-        groups: palletRes.groups,
-        byPlatform: palletRes.summary.byPlatform,
-        byProduct: palletRes.summary.byProduct,
-        byPalletType: palletRes.summary.byPalletType,
-        stackingPlanByPlatform: palletRes.stackingPlanByPlatform
-      },
+      allocations: targetDeliveryDate ? activePlan.allocations : finalAllocations,
+      globalAllocation: finalAllocations,
+      plansByDate,
+      totalBoxes: activePlan.totalBoxes,
+      totalPallets: activePlan.totalPallets,
+      totalPalletSlots: activePlan.totalPalletSlots,
+      palletGroups: activePlan.palletGroups,
+      palletSummaries: activePlan.palletSummaries,
       stockRemaining: stockRemainingList,
-      warnings,
-      errors,
+      warnings: [...warnings, ...(activePlan.warnings || [])],
+      errors: [...errors, ...(activePlan.errors || [])],
       isPhysicallyFeasible
     };
   }
