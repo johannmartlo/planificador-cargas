@@ -351,7 +351,10 @@
     let effectiveDeliveryDate = null;
     let sourceDate = null;
 
-    if (Array.isArray(demandOrders) && demandOrders.length > 0) {
+    // Un array (incluso vacío) es una lista de demanda EXPLÍCITA: [] significa
+    // "no hay pedidos activos" y nunca debe caer al parseo de rawText.
+    const demandOrdersProvided = Array.isArray(demandOrders);
+    if (demandOrdersProvided) {
       allParsedLines = demandOrders.map((ord, idx) => {
         const orderId = String(ord.id || ord.orderId || `ord_${idx + 1}`).trim();
         const isActive = (ord.active !== false) && (ord.estado ? ord.estado === 'ACTIVO' : (ord.isValid !== false));
@@ -361,7 +364,8 @@
           rawText: ord.sourceLine || `${ord.platform} ${ord.fechaEntrega || ord.deliveryDate || ''} ${ord.productId} ${ord.cajas !== undefined ? ord.cajas : ord.requestedQuantity}`,
           lineNumber: idx + 1,
           platform: String(ord.platform || '').trim().toUpperCase(),
-          deliveryDate: String(ord.fechaEntrega || ord.deliveryDate || '').trim(),
+          // Los pedidos sin fecha se agrupan en un contexto explícito "Sin fecha".
+          deliveryDate: String(ord.fechaEntrega || ord.deliveryDate || '').trim() || 'Sin fecha',
           sourceDate: null,
           gisCode: ord.gisCode || '',
           productDescription: ord.productDescription || ord.productId,
@@ -374,8 +378,8 @@
           parseErrors: []
         };
       });
-      detectedDates = Array.from(new Set(allParsedLines.map(l => l.deliveryDate).filter(Boolean)));
-      effectiveDeliveryDate = targetDeliveryDate || (detectedDates && detectedDates[0]) || null;
+      detectedDates = Array.from(new Set(allParsedLines.map(l => l.deliveryDate).filter(d => d && d !== 'Sin fecha')));
+      effectiveDeliveryDate = targetDeliveryDate || (detectedDates && detectedDates[0]) || 'Sin fecha';
     } else {
       const parseFn = parseForecast || parseRawText;
       const parseResult = parseFn(rawText, catalogConfig);
@@ -401,11 +405,14 @@
         }
       }
 
-      allParsedLines = (parseResult.lines || []).map((l, idx) => ({
-        ...l,
-        orderId: l.id || `line_${l.lineNumber || idx + 1}`,
-        deliveryDate: String(l.deliveryDate || '').trim()
-      }));
+      allParsedLines = (parseResult.lines || []).map((l, idx) => {
+        const parsedDate = String(l.deliveryDate || '').trim();
+        return {
+          ...l,
+          orderId: l.id || `line_${l.lineNumber || idx + 1}`,
+          deliveryDate: parsedDate || 'Sin fecha'
+        };
+      });
       sourceDate = (allParsedLines.find(l => l.sourceDate) || {}).sourceDate || null;
       detectedDates = parseResult.detectedDates || (parseResult.detectedDate ? [parseResult.detectedDate] : []);
       effectiveDeliveryDate = targetDeliveryDate || parseResult.detectedDate || null;
@@ -413,7 +420,10 @@
 
     const validLines = allParsedLines.filter(l => l && l.isValid);
 
-    if (validLines.length === 0) {
+    // La ausencia de líneas válidas solo es un error cuando NO hay una lista de
+    // demanda explícita. Con demandOrders (aunque sea []) el resultado correcto
+    // es un plan vacío para la fecha consultada, no un fallback a rawText.
+    if (validLines.length === 0 && !demandOrdersProvided) {
       errors.push({
         code: 'NO_VALID_LINES_PARSED',
         message: 'No se encontraron líneas de pedido válidas en el texto suministrado.'
@@ -475,6 +485,11 @@
         activeLines.push(line);
       }
     }
+
+    // Pedidos sin fecha: contexto explícito "Sin fecha". Consumen stock una sola
+    // vez y quedan representados en su propio plan, nunca ocultos.
+    const undatedLines = activeLines.filter(l => (l.deliveryDate || 'Sin fecha') === 'Sin fecha');
+    const undatedBoxes = undatedLines.reduce((s, l) => s + (Number(l.requestedQuantity) || 0), 0);
 
     const aggregated = aggregateDemands(activeLines);
 
@@ -702,7 +717,7 @@
           finalAllocations.push({
             orderId: line ? (line.orderId || line.id) : alloc.platform,
             platform: line ? line.platform : alloc.platform,
-            deliveryDate: line ? (line.deliveryDate || '') : '',
+            deliveryDate: line ? (line.deliveryDate || 'Sin fecha') : 'Sin fecha',
             productId: COCKTAIL_PRODUCT_ID,
             varietyId: alloc.varietyId,
             requestedQuantity: alloc.requestedQuantity,
@@ -747,7 +762,7 @@
           finalAllocations.push({
             orderId: line ? (line.orderId || line.id) : alloc.platform,
             platform: line ? line.platform : alloc.platform,
-            deliveryDate: line ? (line.deliveryDate || '') : '',
+            deliveryDate: line ? (line.deliveryDate || 'Sin fecha') : 'Sin fecha',
             productId: pId,
             varietyId: vId,
             requestedQuantity: alloc.requestedQuantity,
@@ -792,13 +807,19 @@
     // PASO 6: PALETIZACIÓN FÍSICA Y PLANES SEGREGADOS POR FECHA
     // -----------------------------------------------------------------------
     const plansByDate = {};
-    const dateKeys = Array.from(new Set(finalAllocations.map(a => a.deliveryDate).filter(Boolean)));
+    const dateKeyOf = (a) => String(a.deliveryDate || '').trim() || 'Sin fecha';
+    const dateKeys = Array.from(new Set(finalAllocations.map(dateKeyOf)));
+    // La fecha consultada existe siempre, aunque no tenga pedidos: plan vacío
+    // explícito en lugar de reutilizar el plan de otra fecha.
+    if (targetDeliveryDate && dateKeys.indexOf(targetDeliveryDate) === -1) {
+      dateKeys.push(targetDeliveryDate);
+    }
     if (dateKeys.length === 0) {
-      dateKeys.push(effectiveDeliveryDate || '');
+      dateKeys.push(effectiveDeliveryDate || 'Sin fecha');
     }
 
     for (const d of dateKeys) {
-      const dateAllocs = finalAllocations.filter(a => !d || a.deliveryDate === d);
+      const dateAllocs = finalAllocations.filter(a => dateKeyOf(a) === d);
       const datePalletRes = planPallets(dateAllocs, DEFAULT_PALLET_RULES, palletConfiguration);
 
       const dateDemandByProd = {};
@@ -810,11 +831,20 @@
         dateDemandByPlat[a.platform] = (dateDemandByPlat[a.platform] || 0) + (a.requestedQuantity || 0);
       }
 
+      const dateWarnings = [...(datePalletRes.warnings || [])];
+      if (d === 'Sin fecha' && undatedLines.length > 0) {
+        dateWarnings.push({
+          code: 'UNDATED_ORDERS',
+          message: `${undatedLines.length} pedido(s) sin fecha (${undatedBoxes} cjs) se han planificado en el contexto "Sin fecha".`,
+          context: { count: undatedLines.length, boxes: undatedBoxes }
+        });
+      }
+
       plansByDate[d] = {
-        deliveryDate: d || effectiveDeliveryDate,
-        targetDeliveryDate: d || effectiveDeliveryDate,
-        selectedDeliveryDate: d || effectiveDeliveryDate,
-        detectedDates: d ? [d] : detectedDates,
+        deliveryDate: d,
+        targetDeliveryDate: d,
+        selectedDeliveryDate: d,
+        detectedDates: [d],
         sourceDate,
         demandSummary: {
           totalRequested: dateTotalRequested,
@@ -837,7 +867,7 @@
           stackingPlanByPlatform: datePalletRes.stackingPlanByPlatform
         },
         stockRemaining: stockRemainingList,
-        warnings: [...warnings, ...(datePalletRes.warnings || [])],
+        warnings: [...warnings, ...dateWarnings],
         errors: [...errors, ...(datePalletRes.errors || [])],
         isPhysicallyFeasible: errors.length === 0 && (datePalletRes.errors || []).length === 0
       };
@@ -849,22 +879,25 @@
         ? effectiveDeliveryDate
         : dateKeys[0];
 
+    // Fallback defensivo: NUNCA exponer asignaciones de otras fechas bajo una
+    // fecha distinta. Si faltara el plan, se devuelve un plan vacío.
+    const fallbackDate = targetDeliveryDate || effectiveDeliveryDate || 'Sin fecha';
     const activePlan = plansByDate[primaryDateKey] || {
-      deliveryDate: effectiveDeliveryDate,
-      targetDeliveryDate: effectiveDeliveryDate,
-      selectedDeliveryDate: effectiveDeliveryDate,
-      detectedDates,
+      deliveryDate: fallbackDate,
+      targetDeliveryDate: fallbackDate,
+      selectedDeliveryDate: fallbackDate,
+      detectedDates: [fallbackDate],
       sourceDate,
-      demandSummary: { totalRequested, byProduct: demandByProduct, byPlatform: demandByPlatform },
-      allocations: finalAllocations,
+      demandSummary: { totalRequested: 0, byProduct: {}, byPlatform: {} },
+      allocations: [],
       totalBoxes: 0,
       totalPallets: 0,
       totalPalletSlots: 0,
       palletGroups: [],
-      palletSummaries: { totalBoxes: 0, totalPallets: 0, totalPalletSlots: 0, groups: [], byPlatform: {}, byProduct: {}, byPalletType: {} },
+      palletSummaries: { totalBoxes: 0, totalPallets: 0, totalPalletSlots: 0, groups: [], byPlatform: {}, byProduct: {}, byPalletType: {}, stackingPlanByPlatform: {} },
       stockRemaining: stockRemainingList,
-      warnings: [],
-      errors: [],
+      warnings: [...warnings],
+      errors: [...errors],
       isPhysicallyFeasible: false
     };
 
@@ -900,8 +933,10 @@
       palletGroups: activePlan.palletGroups,
       palletSummaries: activePlan.palletSummaries,
       stockRemaining: stockRemainingList,
-      warnings: [...warnings, ...(activePlan.warnings || [])],
-      errors: [...errors, ...(activePlan.errors || [])],
+      // Sin duplicación: warnings/errors son globales; el plan de fecha ya
+      // contiene los suyos (globales + paletización) para la vista activa.
+      warnings: [...warnings],
+      errors: [...errors],
       isPhysicallyFeasible
     };
   }

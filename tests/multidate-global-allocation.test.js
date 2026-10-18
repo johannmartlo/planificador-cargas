@@ -542,7 +542,7 @@ check('Caso 12.1 · Contrato V4.6: Reconstrucción de planes por fecha a partir 
 // =============================================================================
 console.log('\n--- CASO 13: CAMBIO DE FECHA NO RECALCULA ---');
 
-checkBugReproduction('Caso 13.1 · Reproducción del flujo V4.5 en UIController (pendiente de Paso 4)', () => {
+check('Caso 13.1 · V4.6: UIController reparte UNA bolsa global entre fechas (120 -> 75 + 45)', () => {
   const doc = createDocument();
   globalThis.document = doc;
   globalThis.window = {
@@ -558,20 +558,34 @@ checkBugReproduction('Caso 13.1 · Reproducción del flujo V4.5 en UIController 
   ctrl.state.addOrder({ id: 'ORD-1', platform: 'CENTRO', productId: 'PERA_RAMA', cajas: 100, fechaEntrega: '26/09/2026' });
   ctrl.state.addOrder({ id: 'ORD-2', platform: 'MURCIA', productId: 'PERA_RAMA', cajas: 60, fechaEntrega: '27/09/2026' });
 
-  // 1. Generar plan para Sábado
+  // 1. Una sola ejecución del reparto global para AMBAS fechas
   ctrl.state.selectedDeliveryDate = '26/09/2026';
   const plan1 = ctrl.generatePlan();
   const servido1 = plan1.allocations.reduce((s, a) => s + a.allocatedQuantity, 0);
 
-  // 2. Conmutar a Domingo y generar plan
-  ctrl.state.selectedDeliveryDate = '27/09/2026';
-  const plan2 = ctrl.generatePlan();
+  assert.deepStrictEqual(Object.keys(plan1.plansByDate).sort(), ['26/09/2026', '27/09/2026']);
+  assert.strictEqual(
+    plan1.globalAllocation.reduce((s, a) => s + a.allocatedQuantity, 0), 120,
+    'el reparto global consume exactamente el stock disponible'
+  );
+  assert.strictEqual(servido1, 75);
+
+  // 2. Conmutar a Domingo NO reejecuta el reparto: se lee plansByDate
+  ctrl.generatePlan = () => { throw new Error('cambiar de fecha no debe recalcular'); };
+  const plan2 = ctrl.selectDeliveryDate('27/09/2026');
   const servido2 = plan2.allocations.reduce((s, a) => s + a.allocatedQuantity, 0);
 
-  // En V4.5 UIController filtra antes de llamar a planLoad, confirmando que ui.js aún no ha sido adaptado
-  assert.strictEqual(servido1, 100);
-  assert.strictEqual(servido2, 60);
-  assert.strictEqual(servido1 + servido2, 160);
+  assert.strictEqual(plan2, ctrl.state.planningResult);
+  assert.strictEqual(servido2, 45);
+  assert.strictEqual(servido1 + servido2, 120, '160 servidas sería doble asignación');
+
+  // 3. Volver a Sábado tampoco recalcula ni consume stock extra
+  const plan3 = ctrl.selectDeliveryDate('26/09/2026');
+  assert.strictEqual(plan3.allocations.reduce((s, a) => s + a.allocatedQuantity, 0), 75);
+
+  const rem = ctrl.state.globalResult.stockRemaining.find(s => s.productId === 'PERA_RAMA');
+  assert.strictEqual(rem.used, 120);
+  assert.strictEqual(rem.remaining, 0);
 });
 
 check('Caso 13.2 · Contrato V4.6: planLoad con targetDeliveryDate consulta la fecha sin duplicar stock', () => {

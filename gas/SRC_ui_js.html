@@ -338,8 +338,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       const activeOrders = Array.isArray(orders) ? orders.filter(o => {
         if (!o.active) return false;
         if (!targetDate) return true;
-        const d = o.fechaEntrega || o.deliveryDate;
-        return !d || d === targetDate || d === 'Sin fecha';
+        const d = String(o.fechaEntrega || o.deliveryDate || '').trim() || 'Sin fecha';
+        return !targetDate || d === targetDate;
       }) : [];
 
       for (const o of activeOrders) {
@@ -393,6 +393,13 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.palletOverrides = {};
       this.planningResult = null;
       this.previousResult = null;
+      // Resultado GLOBAL multifecha del último cálculo (plansByDate).
+      // La fecha seleccionada solo elige la vista; no vuelve a repartir stock.
+      this.globalResult = null;
+      // true en cuanto el usuario aporta demanda (previsión analizada o pedido
+      // manual). Permite distinguir "sin pedidos" de "sin demanda todavía":
+      // con sesión de demanda, [] significa plan vacío y NUNCA parsear rawText.
+      this.demandSessionActive = false;
       this.calculatedStock = null;
       this.lastCalculatedAt = null;
       this.planState = 'NO_PLAN'; // 'NO_PLAN', 'PLAN_ACTUALIZADO', 'PLAN_DESACTUALIZADO'
@@ -425,7 +432,26 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
           break;
         }
       }
-      this.planState = hasChanged ? 'PLAN_DESACTUALIZADO' : 'PLAN_ACTUALIZADO';
+      if (hasChanged) {
+        this.planState = 'PLAN_DESACTUALIZADO';
+        // M2: el badge de cabecera no debe conservar un estado "correcto"
+        // cuando el plan ha quedado desactualizado por cambio de stock.
+        this.planStatus = 'PLAN DESACTUALIZADO';
+      } else {
+        this.planState = 'PLAN_ACTUALIZADO';
+      }
+    }
+
+    /**
+     * Invalida el plan cuando cambia un dato relevante distinto del stock
+     * (pedidos, bloqueos, exclusiones, overrides de palet). El stock se
+     * comprueba aparte en _checkPlanSyncState.
+     */
+    _invalidatePlan() {
+      if (this.planningResult) {
+        this.planState = 'PLAN_DESACTUALIZADO';
+        this.planStatus = 'PLAN DESACTUALIZADO';
+      }
     }
 
     setStockItem(stockKey, value) {
@@ -447,12 +473,14 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       if (!platform || !productId || !palletType) return false;
       const key = `${String(platform).trim().toUpperCase()}::${String(productId).trim().toUpperCase()}`;
       this.palletOverrides[key] = String(palletType).trim().toUpperCase();
+      this._invalidatePlan();
       return true;
     }
 
     removePalletOverride(key) {
       if (this.palletOverrides && this.palletOverrides[key]) {
         delete this.palletOverrides[key];
+        this._invalidatePlan();
         return true;
       }
       return false;
@@ -487,6 +515,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       }
 
       this.locks.push(cleanLock);
+      this._invalidatePlan();
       return true;
     }
 
@@ -503,6 +532,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     removeLock(index) {
       if (index >= 0 && index < this.locks.length) {
         this.locks.splice(index, 1);
+        this._invalidatePlan();
         return true;
       }
       return false;
@@ -523,12 +553,14 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
         value,
         reason: exclusion.reason ? String(exclusion.reason).trim() : 'Exclusión manual'
       });
+      this._invalidatePlan();
       return true;
     }
 
     removeExclusion(index) {
       if (index >= 0 && index < this.exclusions.length) {
         this.exclusions.splice(index, 1);
+        this._invalidatePlan();
         return true;
       }
       return false;
@@ -572,6 +604,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       }
 
       this.orders.push(order);
+      this.demandSessionActive = true;
+      this._invalidatePlan();
       return order;
     }
 
@@ -597,6 +631,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     importForecastLines(validLines, detectedDate) {
       // Eliminar pedidos anteriores de tipo PREVISION para permitir re-análisis sin duplicar
       this.orders = this.orders.filter(o => o.origen !== 'PREVISION');
+      this._invalidatePlan();
 
       if (!Array.isArray(validLines)) return;
 
@@ -652,6 +687,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
         order.cajas = Math.max(1, Math.floor(Number(updates.cajas) || 0));
       }
       if (updates.fechaEntrega !== undefined) order.fechaEntrega = String(updates.fechaEntrega).trim();
+      this._invalidatePlan();
       return true;
     }
 
@@ -735,6 +771,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.orders = this.orders.filter(o => !childIds.has(o.id));
       parent.splitChildren = null;
       parent.active = true;
+      this._invalidatePlan();
       return true;
     }
 
@@ -762,15 +799,17 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       }
 
       this.orders = this.orders.filter(o => o.id !== orderId);
+      this._invalidatePlan();
       return true;
     }
 
     getAvailableDeliveryDates() {
       const dates = new Set();
       for (const o of this.orders) {
-        if (o.active && o.fechaEntrega && o.fechaEntrega !== 'Sin fecha') {
-          dates.add(o.fechaEntrega);
-        }
+        if (!o.active) continue;
+        // Los pedidos sin fecha forman un contexto propio y visible.
+        const d = String(o.fechaEntrega || '').trim() || 'Sin fecha';
+        dates.add(d);
       }
       return Array.from(dates).sort();
     }
@@ -778,11 +817,22 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     getActiveDemandOrders(targetDeliveryDate) {
       return this.orders.filter(o => {
         if (!o.active) return false;
-        if (targetDeliveryDate && o.fechaEntrega && o.fechaEntrega !== targetDeliveryDate) {
-          return false;
-        }
-        return true;
+        if (!targetDeliveryDate) return true;
+        const d = String(o.fechaEntrega || '').trim() || 'Sin fecha';
+        return d === targetDeliveryDate;
       });
+    }
+
+    /**
+     * Si la fecha seleccionada ya no tiene pedidos activos, apunta a la
+     * primera fecha disponible. No altera el reparto global.
+     */
+    resolveSelectedDeliveryDate() {
+      const dates = this.getAvailableDeliveryDates();
+      if (dates.length > 0 && (!this.selectedDeliveryDate || dates.indexOf(this.selectedDeliveryDate) === -1)) {
+        this.selectedDeliveryDate = dates[0];
+      }
+      return this.selectedDeliveryDate;
     }
 
     setSelectedDeliveryDate(dateStr) {
@@ -830,7 +880,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       const oPlat = String(o.platform || '').trim().toUpperCase();
       if (oPlat !== normPlat) return false;
       if (o.active === false || o.estado === 'DIVIDIDO' || o.estado === 'CANCELADO') return false;
-      if (targetDate && o.fechaEntrega && o.fechaEntrega !== 'Sin fecha' && o.fechaEntrega !== targetDate) return false;
+      const oDate = String(o.fechaEntrega || '').trim() || 'Sin fecha';
+      if (targetDate && oDate !== targetDate) return false;
       return true;
     });
 
@@ -1463,6 +1514,19 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
    * @returns {Object} Informe estructurado de cambios
    */
   function comparePlanningResults(previousResult, currentResult) {
+    // La comparación solo tiene sentido dentro de la MISMA fecha de entrega.
+    const prevDate = previousResult && (previousResult.selectedDeliveryDate || previousResult.deliveryDate);
+    const currDate = currentResult && (currentResult.selectedDeliveryDate || currentResult.deliveryDate);
+    if (prevDate && currDate && prevDate !== currDate) {
+      return {
+        hasComparison: false,
+        deltas: null,
+        byPlatform: {},
+        byProduct: {},
+        changesSummary: [],
+        isIdentical: false
+      };
+    }
     if (!previousResult || !currentResult) {
       return {
         hasComparison: false,
@@ -1742,6 +1806,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.renderLocksList();
       this.checkLockConflictFeedback();
       this.renderPlanStateBanner();
+      this.regeneratePlanIfExists();
     }
 
     addFixedLock(productId, quantity) {
@@ -1760,6 +1825,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.renderLocksList();
       this.checkLockConflictFeedback();
       this.renderPlanStateBanner();
+      this.regeneratePlanIfExists();
       return true;
     }
 
@@ -1881,6 +1947,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.state.forecastAnalysis = analysis;
       // Sincronizar pedidos en la Previsión Consolidada (aditivo con pedidos anticipados)
       this.state.importForecastLines(validLines, analysis.detectedDate);
+      // H1: si la fecha seleccionada ya no tiene pedidos, apuntar a una disponible.
+      this.state.resolveSelectedDeliveryDate();
       this.renderConsolidatedForecast();
       return analysis;
     }
@@ -1907,18 +1975,25 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
         this.state.previousResult = this.state.planningResult;
       }
 
-      // Resolver pedidos activos para la fecha de entrega seleccionada
+      // V4.6: UNA sola asignación global con TODOS los pedidos activos.
+      // La fecha seleccionada solo decide qué plan de plansByDate se presenta.
+      const hasDemandSession = this.state.demandSessionActive === true
+        || this.state.forecastAnalysis !== null
+        || (Array.isArray(this.state.orders) && this.state.orders.length > 0);
       let activeOrders = null;
       let targetDeliveryDate = this.state.selectedDeliveryDate;
-      if (this.state.orders && this.state.orders.length > 0) {
+
+      if (hasDemandSession) {
         if (!targetDeliveryDate) {
           const availableDates = this.state.getAvailableDeliveryDates();
           if (availableDates.length > 0) {
             targetDeliveryDate = availableDates[0];
-            this.state.selectedDeliveryDate = targetDeliveryDate;
           }
         }
-        activeOrders = this.state.getActiveDemandOrders(targetDeliveryDate);
+        if (!targetDeliveryDate) targetDeliveryDate = 'Sin fecha';
+        this.state.selectedDeliveryDate = targetDeliveryDate;
+        // null = todos los pedidos activos de todas las fechas.
+        activeOrders = this.state.getActiveDemandOrders(null);
       }
 
       const options = {
@@ -1934,7 +2009,10 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
         }
       };
 
-      const result = planLoad(options);
+      const fullResult = planLoad(options);
+      this.state.globalResult = fullResult;
+      const result = this.applyPlanView(fullResult, targetDeliveryDate);
+
       this.state.planningResult = result;
       this.state.calculatedStock = { ...this.state.stock };
       this.state.lastCalculatedAt = new Date();
@@ -1942,6 +2020,112 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.state.planStatus = UIController.derivePlanStatus(result);
 
       return result;
+    }
+
+    /**
+     * Proyecta el resultado global multifecha sobre la fecha seleccionada.
+     * Es una vista pura: no reparte stock ni recalcula nada. Si la fecha no
+     * tiene plan, devuelve un plan vacío (nunca el de otra fecha).
+     * @param {Object} fullResult PlanningResult completo de planLoad
+     * @param {string|null} dateStr
+     * @returns {Object} Vista de plan para esa fecha
+     */
+    applyPlanView(fullResult, dateStr) {
+      if (!fullResult) return null;
+
+      const planDate = dateStr
+        || fullResult.selectedDeliveryDate
+        || fullResult.deliveryDate
+        || (fullResult.detectedDates && fullResult.detectedDates[0])
+        || null;
+
+      const plan = (fullResult.plansByDate && planDate)
+        ? fullResult.plansByDate[planDate]
+        : null;
+
+      const emptyPlan = {
+        deliveryDate: planDate,
+        targetDeliveryDate: planDate,
+        selectedDeliveryDate: planDate,
+        detectedDates: planDate ? [planDate] : [],
+        demandSummary: { totalRequested: 0, byProduct: {}, byPlatform: {} },
+        allocations: [],
+        totalBoxes: 0,
+        totalPallets: 0,
+        totalPalletSlots: 0,
+        palletGroups: [],
+        palletSummaries: { totalBoxes: 0, totalPallets: 0, totalPalletSlots: 0, groups: [], byPlatform: {}, byProduct: {}, byPalletType: {}, stackingPlanByPlatform: {} },
+        stockRemaining: fullResult.stockRemaining || [],
+        warnings: fullResult.warnings || [],
+        errors: fullResult.errors || [],
+        // Un plan sin demanda no es inviable por sí mismo; los errores reales
+        // del resultado global siguen marcando la planificación como no viable.
+        isPhysicallyFeasible: (fullResult.errors || []).length === 0
+      };
+
+      const active = plan || emptyPlan;
+
+      return Object.assign({}, fullResult, {
+        deliveryDate: active.deliveryDate,
+        targetDeliveryDate: active.targetDeliveryDate,
+        selectedDeliveryDate: active.selectedDeliveryDate,
+        detectedDates: active.detectedDates,
+        demandSummary: active.demandSummary,
+        allocations: active.allocations,
+        totalBoxes: active.totalBoxes,
+        totalPallets: active.totalPallets,
+        totalPalletSlots: active.totalPalletSlots,
+        palletGroups: active.palletGroups,
+        palletSummaries: active.palletSummaries,
+        stockRemaining: active.stockRemaining,
+        warnings: active.warnings || [],
+        errors: active.errors || [],
+        isPhysicallyFeasible: active.isPhysicallyFeasible
+      });
+    }
+
+    /**
+     * Cambia la fecha presentada reutilizando el reparto global ya calculado.
+     * No ejecuta planLoad ni consume stock: solo proyecta plansByDate.
+     * @param {string|null} dateStr
+     * @returns {Object|null} Vista activa
+     */
+    selectDeliveryDate(dateStr) {
+      const date = dateStr ? String(dateStr).trim() : null;
+      this.state.setSelectedDeliveryDate(date);
+
+      const fullResult = this.state.globalResult;
+      if (!fullResult) {
+        this.renderConsolidatedForecast();
+        return null;
+      }
+
+      const view = this.applyPlanView(fullResult, date);
+      this.state.planningResult = view;
+      // M1: no derivar "PLANIFICACIÓN CORRECTA" desde una vista obsoleta.
+      // Si el plan está desactualizado, el estado se mantiene inequívoco.
+      this.state.planStatus = this.state.planState === 'PLAN_ACTUALIZADO'
+        ? UIController.derivePlanStatus(view)
+        : 'PLAN DESACTUALIZADO';
+      this.renderConsolidatedForecast();
+      this.renderAll(view);
+      return view;
+    }
+
+    /**
+     * Regenera el plan global UNA sola vez si ya existía, tras una mutación
+     * de datos relevantes (bloqueos, exclusiones, overrides de palet, pedidos).
+     * No hace nada si todavía no hay plan previo.
+     */
+    regeneratePlanIfExists() {
+      if (!this.state.planningResult) return;
+      if (typeof document === 'undefined') {
+        // Sin DOM (p. ej. pruebas o llamadas headless) no hay inputs que
+        // sincronizar; se regenera el estado puro sin render.
+        this.generatePlan();
+        return;
+      }
+      this.handleGeneratePlan();
     }
 
     // =======================================================================
@@ -2578,6 +2762,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
               if (lineEl) lineEl.value = '';
               if (reasonEl) reasonEl.value = '';
               self.renderExclusionsList();
+              self.regeneratePlanIfExists();
             }
           }
         });
@@ -2620,6 +2805,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
             if (added) {
               if (qtyEl) qtyEl.value = '';
               self.renderLocksList();
+              self.regeneratePlanIfExists();
             }
           }
         });
@@ -2716,6 +2902,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
           if (platEl && prodEl && typeEl) {
             self.state.setPalletOverride(platEl.value, prodEl.value, typeEl.value);
             self.renderPalletOverridesList();
+            self.regeneratePlanIfExists();
           }
         });
       }
@@ -2854,11 +3041,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
           const dateBtn = e.target.closest('[data-delivery-date]');
           if (dateBtn) {
             const chosenDate = dateBtn.getAttribute('data-delivery-date');
-            self.state.setSelectedDeliveryDate(chosenDate);
-            self.renderConsolidatedForecast();
-            if (self.state.planningResult) {
-              self.handleGeneratePlan();
-            }
+            // V4.6: cambiar fecha NO reejecuta el reparto global.
+            self.selectDeliveryDate(chosenDate);
             return;
           }
         });
@@ -3067,11 +3251,18 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     handleAnalyze() {
       const tsvInput = document.getElementById('tsv-input');
       const rawText = tsvInput ? tsvInput.value : this.state.rawText;
+      const hadPlan = Boolean(this.state.planningResult);
       const analysis = this.analyzeForecast(rawText);
       this.renderForecastAnalysis(analysis);
       this.populateDropdowns(analysis);
       this.updateWorkflowBar();
       this.renderWorkflowStrip();
+      // H1: una previsión nueva invalida el plan global; si ya existía, se
+      // regenera UNA sola vez para no conservar asignaciones de fechas
+      // desaparecidas ni dejar globalResult/planningResult incoherentes.
+      if (hadPlan) {
+        this.handleGeneratePlan();
+      }
     }
 
     handleGeneratePlan() {
@@ -3292,7 +3483,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
 
         if (status === 'PLANIFICACIÓN CORRECTA') {
           badgeStatus.className += 'bg-emerald-950/40 text-emerald-400 border border-emerald-800/60';
-        } else if (status === 'PLANIFICACIÓN CON INCIDENCIAS') {
+        } else if (status === 'PLANIFICACIÓN CON INCIDENCIAS' || status === 'PLAN DESACTUALIZADO') {
           badgeStatus.className += 'bg-amber-950/40 text-amber-300 border border-amber-800/60';
         } else {
           badgeStatus.className += 'bg-rose-950/40 text-rose-400 border border-rose-800/60';
@@ -3680,8 +3871,9 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
                   const dayName = getDayOfWeekName(d);
                   const isSel = d === selected;
                   const label = dayName ? `${dayName} ${d}` : d;
-                  const countForDate = allOrders.filter(o => o.active && o.fechaEntrega === d).length;
-                  const boxesForDate = allOrders.filter(o => o.active && o.fechaEntrega === d).reduce((s, o) => s + o.cajas, 0);
+                  const dateOf = (o) => String(o.fechaEntrega || '').trim() || 'Sin fecha';
+                  const countForDate = allOrders.filter(o => o.active && dateOf(o) === d).length;
+                  const boxesForDate = allOrders.filter(o => o.active && dateOf(o) === d).reduce((s, o) => s + o.cajas, 0);
                   const activeClasses = isSel
                     ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/60 font-bold shadow-[0_0_10px_rgba(16,185,129,0.15)]'
                     : 'bg-surface hover:bg-hover text-secondary hover:text-primary border border-app';
@@ -3707,7 +3899,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       // 2. Filtrado de pedidos según fecha seleccionada
       const targetDate = this.state.selectedDeliveryDate;
       const filteredOrders = targetDate
-        ? allOrders.filter(o => o.fechaEntrega === targetDate)
+        ? allOrders.filter(o => (String(o.fechaEntrega || '').trim() || 'Sin fecha') === targetDate)
         : allOrders;
 
       const targetEl = platformsList || tableBody;
@@ -4407,6 +4599,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
           const key = e.target.getAttribute('data-override-key');
           self.state.removePalletOverride(key);
           self.renderPalletOverridesList();
+          self.regeneratePlanIfExists();
         });
       });
     }
@@ -4455,6 +4648,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
           self.renderLocksList();
           self.checkLockConflictFeedback();
           self.renderPlanStateBanner();
+          self.regeneratePlanIfExists();
         });
       });
     }
@@ -4485,6 +4679,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
           const idx = Number(e.target.getAttribute('data-excl-idx'));
           self.state.removeExclusion(idx);
           self.renderExclusionsList();
+          self.regeneratePlanIfExists();
         });
       });
     }
@@ -4951,7 +5146,8 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
         const printDateEl = document.getElementById('print-delivery-date');
         const printTimeEl = document.getElementById('print-emission-time');
         if (printDateEl) {
-          printDateEl.textContent = result.deliveryDate || (result.detectedDates && result.detectedDates[0]) || '--/--/----';
+          const rawDate = result.deliveryDate || (result.detectedDates && result.detectedDates[0]) || '';
+          printDateEl.textContent = rawDate ? formatDateWithDay(rawDate) : '--/--/----';
         }
         if (printTimeEl) {
           printTimeEl.textContent = new Date().toLocaleString('es-ES');
