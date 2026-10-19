@@ -116,21 +116,27 @@ El motor de paletización calcula la estructura física real: **CAJAS → CAPAS 
 | **Cherry Rama** | EURO | 400×300×97 mm | 8 | 22 | **176 cjs** | 2.134 mm | 2.278 mm |
 | **Cherry Rama** | METROCHEP | 400×300×97 mm | 10 | 22 | **220 cjs** | 2.134 mm | 2.278 mm |
 
-#### Transición Automática de Formato por Umbral
-- **Pera Rama**: $\le 76$ cjs $\to$ `EURO`; $> 76$ cjs $\to$ `METROCHEP`.
-- **Cocktail Romántico**: $\le 80$ cjs $\to$ `EURO`; $> 80$ cjs $\to$ `METROCHEP`.
-- **Cherry Rama**: $\le 176$ cjs $\to$ `EURO`; $> 176$ cjs $\to$ `METROCHEP`.
-*(Si la plataforma tiene configuración explícita, se respeta salvo Cherry $\le 176$ que siempre resuelve a EURO).*
+#### Selección de Formato (EURO / METROCHEP)
+No existe un **umbral obligatorio de cajas**. El optimizador elige entre `EURO` y `METROCHEP`
+según las reglas físicas del artículo (capacidades, capas, alturas), las torres necesarias y
+la configuración de palet. En igualdad de torres prefiere `EURO`.
+
+- **Pera Rama**: con 77 cajas el óptimo actual es `EURO` (2 palets en 1 torre); con 81 pasa a
+  `METROCHEP` (1 palet en 1 torre). No es una regla por umbral, es el resultado de la optimización.
+- **Cocktail Romántico** y **Cherry Rama**: se aplica el mismo criterio.
+- **Única salvaguarda de override**: si se fuerza manualmente `METROCHEP` en **Cherry Rama**
+  con ≤ 176 cajas (capacidad EURO), se mantiene `EURO`. Es una regla explícita de ese artículo,
+  no un umbral general.
 
 #### Remonte y Torres (Huecos de Palet)
 Las torres se empaquetan de forma óptima determinista (Bin Packing determinista) respetando:
 $$\text{Altura Torre} = (N \times 144\text{ mm}) + \sum \text{Altura Mercancía}_i \le 2.278\text{ mm} \quad (N \le 3)$$
-- En el dataset canónico **18/09 (522 cajas)**, se generan exactamente **17 palets físicos** que se agrupan en **10 torres / huecos de palet**:
+- En el dataset canónico **18/09 (522 cajas)**, se generan exactamente **17 palets físicos** que se agrupan en **9 torres / huecos de palet**:
   - **Santander**: 1 hueco (3 palets remontados: 58 Pera + 4 Cocktail + 24 Cherry = 2.243 mm $\le$ 2.278 mm).
   - **Centro**: 2 huecos (3 palets: 2.908 mm > 2.278 mm $\to$ divide en 2 torres).
   - **Cataluña**: 2 huecos (3 palets: 2.811 mm > 2.278 mm $\to$ divide en 2 torres).
   - **Levante**: 2 huecos (3 palets: 2.813 mm > 2.278 mm $\to$ divide en 2 torres).
-  - **Sur**: 2 huecos (3 palets: 2.336 mm > 2.278 mm $\to$ divide en 2 torres).
+  - **Sur**: 1 hueco (3 palets: 2.051 mm $\le$ 2.278 mm).
   - **Málaga**: 1 hueco (2 palets: 858 mm $\le$ 2.278 mm).
 
 ---
@@ -162,48 +168,93 @@ Para verificar el funcionamiento instantáneamente sin escribir nada:
 logistica-muelle/
 ├── index.html                 # Interfaz visual de la SPA (Vanilla JS + Tailwind)
 ├── README.md                  # Manual operativo y técnico oficial
-├── spec.md                    # Especificación formal de requisitos
-├── test_data.tsv              # Datos brutos de muestra
+├── README-USUARIO.md          # Guía rápida de muelle
+├── SPEC.md                    # Especificación formal de requisitos
+├── ESPECIFICACION_DISENO_DESKTOP_V4.md
+├── catalog/
+│   └── catalog.json           # Fuente de verdad del catálogo de artículos (V4.7)
 ├── src/                       # Código fuente modular (UMD desacoplado)
-│   ├── catalog.js             # Catálogo de productos, códigos GIS y plataformas
+│   ├── catalog-data.js        # Generado desde catalog.json — NO editar a mano
+│   ├── catalog-schema.js      # Validador puro del catálogo (sin DOM)
+│   ├── catalog.js             # API de catálogo construida desde los datos
 │   ├── parser.js              # Parser tolerante a fallos y agregador de demanda
 │   ├── hamilton.js            # Algoritmo de prorrateo proporcional (Hare-Niemeyer)
 │   ├── cocktail-solver.js     # Solucionador FIFO y monovarietal estricto
 │   ├── palletizer.js          # Motor de cubicaje, capacidades y alturas
 │   ├── orchestrator.js        # Orquestador central puro (planLoad)
 │   ├── ui.js                  # Controlador y estado de la UI (AppState/UIController)
-│   └── logistics-engine.js    # Motor clásico conservado por compatibilidad
-├── tests/                     # Suite de pruebas automatizadas
-│   ├── acceptance.test.js     # Escenarios de aceptación final del MVP (Fase 8)
-│   ├── hamilton.test.js       # Tests unitarios de Hamilton y restos
-│   ├── monovarietal.test.js   # Tests de FIFO y no mezcla de Cocktail
-│   ├── hardening.test.js      # Casos extremos, nulos y stock cero
-│   ├── palletizer.test.js     # Tests de cubicaje, Euro y Metrochep
-│   ├── parser.test.js         # Tests de extracción de líneas, fechas y GIS
-│   ├── integration.test.js    # Tests de integración del orquestador
-│   ├── test_logistics_engine.js # Tests de regresión del motor clásico
-│   └── ui.test.js             # Tests de la capa UI, reactividad y WhatsApp
-├── scripts/                   # Scripts de verificación y reporte
-│   ├── run_all_tests.js       # Ejecutor global de las 9 suites de pruebas
-│   ├── verify_dom_ids.js      # Verificador de sincronización entre UI y DOM
-│   └── verify_phase_7.js      # Verificador de salidas (WhatsApp, PDF e Impresión)
-└── reports/                   # Documentos generados físicamente
-    └── Plan_Carga_18_09_A4.pdf # Informe PDF A4 de prueba verificado (526 KB)
+│   ├── mobile.css             # Shell móvil
+│   └── logistics-engine.js    # Motor clásico huérfano (no se carga en V4.6/V4.7)
+├── tests/                     # 15 suites .test.js + 3 scripts de comprobación (§9)
+├── tools/
+│   ├── build-catalog.js       # Valida catalog.json y genera src/catalog-data.js
+│   └── build-gas.js           # Genera gas/ — NO ejecutado en V4.7
+└── gas/                       # Bundle de Apps Script (sin regenerar en V4.7)
 ```
+
+La documentación técnica del catálogo está en [`docs/CATALOGO_ARTICULOS.md`](docs/CATALOGO_ARTICULOS.md).
 
 ---
 
 ## 9. Ejecución de Tests Automatizados
 
-Para ejecutar la batería completa de pruebas:
+Sin dependencias externas: solo Node.js. Cada archivo se ejecuta por separado y devuelve código 0 si todo pasa.
+
+**15 suites funcionales** (una por archivo `.test.js`):
 
 ```bash
-# Ejecutar todas las suites de prueba (184 tests):
-node scripts/run_all_tests.js
+# Catálogo configurable (V4.7)
+node tests/catalog-schema.test.js
+node tests/catalog-configurable.test.js
+node tests/parser-error-propagation.test.js
 
-# Ejecutar únicamente la suite de aceptación final:
-node tests/acceptance.test.js
+# Motor y planificación
+node tests/multidate-global-allocation.test.js
+node tests/multidate-ui-integration.test.js
+node tests/plan-simplification-v45.test.js
+node tests/plan-v5-hierarchy.test.js
+node tests/consolidated-forecast-orders.test.js
+node tests/desglose-tecnico-malaga.test.js
+
+# Interfaz, móvil y paridad
+node tests/desktop-mobile-views.test.js
+node tests/mobile-desktop-parity.test.js
+node tests/mobile-shell.test.js
+node tests/mobile-workflow.test.js
+node tests/mobile-workflow-e2e.test.js
+node tests/gas-include-contract.test.js
 ```
+
+**3 scripts de comprobación** (bundle GAS, funcional y QA visual):
+
+```bash
+node tests/gas-bundle-verify.js
+node tests/gas-functional-check.js
+node tests/mobile-visual-qa.js
+```
+
+**Batería completa (PowerShell):**
+
+```powershell
+Get-ChildItem tests\*.test.js | ForEach-Object { node $_.FullName }
+node tests\gas-bundle-verify.js
+node tests\gas-functional-check.js
+node tests\mobile-visual-qa.js
+```
+
+### 9.1 Catálogo configurable (V4.7)
+
+La fuente de verdad es `catalog/catalog.json`. `src/catalog-data.js` es un artefacto generado: no se edita a mano.
+
+```bash
+# Valida catalog.json y regenera src/catalog-data.js
+node tools/build-catalog.js
+
+# Solo comprueba que el artefacto está sincronizado (falla si no)
+node tools/build-catalog.js --check
+```
+
+Los bundles de `gas/` **no** se han regenerado en V4.7. El próximo build autorizado debe ejecutar `node tools/build-gas.js` y volver a desplegar desde `gas/`; hasta entonces, `gas/` conserva la versión anterior y no debe publicarse.
 
 ---
 

@@ -37,8 +37,13 @@ const GAS = path.join(ROOT, 'gas');
 
 const sha256 = buf => crypto.createHash('sha256').update(buf).digest('hex');
 
-/** Los 7 módulos UMD, en el MISMO orden estricto de dependencia que index.html. */
+/**
+ * Los módulos UMD, en el MISMO orden estricto de dependencia que index.html.
+ * V4.7 incorpora `catalog-data.js` (datos generados desde catalog/catalog.json)
+ * antes de `catalog.js`. El bundle GAS NO se regenera en esta versión.
+ */
 const MODULES = [
+  'catalog-data.js',
   'catalog.js',
   'parser.js',
   'hamilton.js',

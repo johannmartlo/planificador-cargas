@@ -18,7 +18,16 @@
 
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    const { DEFAULT_CATALOG, getStockKey, createStockItem, getProductVarieties } = require('./catalog.js');
+    const {
+      DEFAULT_CATALOG,
+      getStockKey,
+      createStockItem,
+      getProductVarieties,
+      getArticle,
+      getPalletRules,
+      getPalletGuards,
+      resolveStockSelection
+    } = require('./catalog.js');
     const { parseForecast, aggregateDemands } = require('./parser.js');
     const { allocateProportionalHamilton } = require('./hamilton.js');
     const { solveMonovarietalFIFO } = require('./cocktail-solver.js');
@@ -29,6 +38,10 @@
       getStockKey,
       createStockItem,
       getProductVarieties,
+      getArticle,
+      getPalletRules,
+      getPalletGuards,
+      resolveStockSelection,
       parseForecast,
       aggregateDemands,
       allocateProportionalHamilton,
@@ -42,6 +55,10 @@
       root.LogisticsCatalog.getStockKey,
       root.LogisticsCatalog.createStockItem,
       root.LogisticsCatalog.getProductVarieties,
+      root.LogisticsCatalog.getArticle,
+      root.LogisticsCatalog.getPalletRules,
+      root.LogisticsCatalog.getPalletGuards,
+      root.LogisticsCatalog.resolveStockSelection,
       root.LogisticsParser.parseForecast,
       root.LogisticsParser.aggregateDemands,
       root.LogisticsHamilton.allocateProportionalHamilton,
@@ -55,6 +72,10 @@
   getStockKey,
   createStockItem,
   getProductVarieties,
+  getArticle,
+  getPalletRules,
+  getPalletGuards,
+  resolveStockSelection,
   parseForecast,
   aggregateDemands,
   allocateProportionalHamilton,
@@ -64,17 +85,38 @@
 ) {
   'use strict';
 
-  // Producto comercial único de Cocktail. Sus variedades físicas (CONSABOR, SUNSTREAM,
-  // SAO_PAULO) son internas y se resuelven SIEMPRE por stock, nunca por la previsión.
-  const COCKTAIL_PRODUCT_ID = 'COCKTAIL_ROMANTICO';
-
   /**
    * Variedades físicas registradas en catálogo para un producto comercial.
    * @param {string} productId
+   * @param {Object} [catalog=DEFAULT_CATALOG]
    * @returns {Array<string>}
    */
-  function getVarietyIds(productId) {
-    return getProductVarieties(productId, DEFAULT_CATALOG).map(v => v.id);
+  function getVarietyIds(productId, catalog = DEFAULT_CATALOG) {
+    return getProductVarieties(productId, catalog).map(v => v.id);
+  }
+
+  /**
+   * Estrategia de asignación declarada por el artículo.
+   * @param {string} productId
+   * @param {Object} catalog
+   * @returns {'HAMILTON'|'MONOVARIETAL_FIFO'}
+   */
+  function getAllocationStrategy(productId, catalog) {
+    const article = getArticle(productId, catalog);
+    const strategy = article && article.planning && article.planning.allocationStrategy;
+    return strategy === 'MONOVARIETAL_FIFO' ? 'MONOVARIETAL_FIFO' : 'HAMILTON';
+  }
+
+  /**
+   * Variedad por defecto para estrategias no monovarietales.
+   * @param {Object|null} article
+   * @param {Array<string>} varietyIds
+   * @returns {string|null}
+   */
+  function resolveDefaultVariety(article, varietyIds) {
+    if (article && article.defaultVarietyId) return article.defaultVarietyId;
+    if (varietyIds.length === 1) return varietyIds[0];
+    return null;
   }
 
   // =========================================================================
@@ -166,9 +208,10 @@
    * - Objeto plano: { PERA_RAMA: 320, CHERRY_RAMA: 100, CONSABOR: 100, SUNSTREAM: 40, SAO_PAULO: 20 }
    *
    * @param {Array|Object} stockInput
+   * @param {Object} [catalog=DEFAULT_CATALOG] Catálogo que resuelve alias de stock.
    * @returns {Map<string, { productId: string, varietyId: string|null, available: number, stockKey: string }>}
    */
-  function normalizeStockInput(stockInput) {
+  function normalizeStockInput(stockInput, catalog = DEFAULT_CATALOG) {
     const stockMap = new Map();
 
     if (!stockInput) return stockMap;
@@ -202,24 +245,18 @@
             stockMap.set(key, { productId: pId.trim().toUpperCase(), varietyId: vId, available: qty, stockKey: key });
           } else {
             const cleanKey = k.trim().toUpperCase();
-            // Si la clave es un producto directo
-            if (cleanKey === 'PERA_RAMA') {
-              const key = getStockKey('PERA_RAMA', null);
-              stockMap.set(key, { productId: 'PERA_RAMA', varietyId: null, available: qty, stockKey: key });
-            } else if (cleanKey === 'CHERRY_RAMA') {
-              const key = getStockKey('CHERRY_RAMA', 'SUNSTREAM');
-              stockMap.set(key, { productId: 'CHERRY_RAMA', varietyId: 'SUNSTREAM', available: qty, stockKey: key });
-            } else if (cleanKey === 'CONSABOR') {
-              // Variedad interna de Cocktail Romántico (mismo artículo comercial, GIS 16228)
-              const key = getStockKey(COCKTAIL_PRODUCT_ID, 'CONSABOR');
-              stockMap.set(key, { productId: COCKTAIL_PRODUCT_ID, varietyId: 'CONSABOR', available: qty, stockKey: key });
-            } else if (cleanKey === 'SAO_PAULO') {
-              const key = getStockKey('COCKTAIL_ROMANTICO', 'SAO_PAULO');
-              stockMap.set(key, { productId: 'COCKTAIL_ROMANTICO', varietyId: 'SAO_PAULO', available: qty, stockKey: key });
-            } else if (cleanKey === 'SUNSTREAM') {
-              // Si viene 'SUNSTREAM' suelto, corresponde a Cocktail Sunstream si ya existe Cherry o por defecto
-              const key = getStockKey('COCKTAIL_ROMANTICO', 'SUNSTREAM');
-              stockMap.set(key, { productId: 'COCKTAIL_ROMANTICO', varietyId: 'SUNSTREAM', available: qty, stockKey: key });
+            // Resolución por catálogo: alias de variedad suelta o id de artículo.
+            // Preserva la semántica histórica (PERA_RAMA, CHERRY_RAMA, CONSABOR,
+            // SAO_PAULO, SUNSTREAM) sin condiciones específicas por producto.
+            const selection = resolveStockSelection(cleanKey, catalog);
+            if (selection) {
+              const key = getStockKey(selection.productId, selection.varietyId);
+              stockMap.set(key, {
+                productId: selection.productId,
+                varietyId: selection.varietyId,
+                available: qty,
+                stockKey: key
+              });
             } else {
               const key = getStockKey(cleanKey, null);
               stockMap.set(key, { productId: cleanKey, varietyId: null, available: qty, stockKey: key });
@@ -343,8 +380,14 @@
       exclusions = [],
       palletConfiguration = {},
       demandOrders = null,
-      targetDeliveryDate = null
+      targetDeliveryDate = null,
+      palletRules = null
     } = options;
+
+    // Las reglas de paletización salen del catálogo efectivo, no de la constante
+    // histórica: un catálogo distinto debe gobernar también la paletización.
+    const effectivePalletRules = palletRules || getPalletRules(catalogConfig);
+    const effectivePalletGuards = getPalletGuards(catalogConfig);
 
     let allParsedLines = [];
     let detectedDates = [];
@@ -396,11 +439,21 @@
 
       if (parseResult.parsingErrors && parseResult.parsingErrors.length > 0) {
         for (const err of parseResult.parsingErrors) {
+          const nested = Array.isArray(err.errors) ? err.errors : [];
+          const errorCodes = nested.map(e => e && e.code).filter(Boolean);
+          const errorMessages = nested.map(e => e && e.message).filter(Boolean);
           warnings.push({
             code: 'PARSER_LINE_ERROR',
             lineNumber: err.lineNumber,
-            message: err.message,
-            rawText: err.rawText
+            lineId: err.lineId,
+            rawText: err.rawText,
+            errorCodes,
+            // El contrato del parser anida los detalles en `errors[]`; el
+            // objeto exterior no tiene `message`. Se propagan todos los motivos.
+            message: errorMessages.length > 0
+              ? errorMessages.join(' | ')
+              : (err.message || 'Línea de pedido inválida.'),
+            details: nested
           });
         }
       }
@@ -416,6 +469,30 @@
       sourceDate = (allParsedLines.find(l => l.sourceDate) || {}).sourceDate || null;
       detectedDates = parseResult.detectedDates || (parseResult.detectedDate ? [parseResult.detectedDate] : []);
       effectiveDeliveryDate = targetDeliveryDate || parseResult.detectedDate || null;
+    }
+
+    // D2: un artículo inactivo no puede planificarse por ninguna vía. El parser
+    // ya lo rechaza al identificar por GIS; la demanda manual (`demandOrders`)
+    // no pasa por el parser, así que se valida aquí contra el catálogo efectivo.
+    for (const line of allParsedLines) {
+      if (!line || !line.isValid) continue;
+      const article = getArticle(line.productId, catalogConfig);
+      if (article && article.status === 'INACTIVE') {
+        const message = `El artículo ${line.productId} está inactivo y no puede planificarse.`;
+        line.isValid = false;
+        if (Array.isArray(line.parseErrors)) {
+          line.parseErrors.push({ code: 'INACTIVE_ARTICLE', message });
+        }
+        errors.push({
+          code: 'INACTIVE_ARTICLE',
+          productId: line.productId,
+          platform: line.platform,
+          lineNumber: line.lineNumber,
+          lineId: line.id,
+          rawText: line.rawText,
+          message
+        });
+      }
     }
 
     const validLines = allParsedLines.filter(l => l && l.isValid);
@@ -491,7 +568,7 @@
     const undatedLines = activeLines.filter(l => (l.deliveryDate || 'Sin fecha') === 'Sin fecha');
     const undatedBoxes = undatedLines.reduce((s, l) => s + (Number(l.requestedQuantity) || 0), 0);
 
-    const aggregated = aggregateDemands(activeLines);
+    const aggregated = aggregateDemands(activeLines, [], catalogConfig);
 
     // Resumen de demanda activa
     const totalRequested = aggregated.totalGeneral || 0;
@@ -545,7 +622,7 @@
       };
     }
 
-    const stockMap = normalizeStockInput(stock);
+    const stockMap = normalizeStockInput(stock, catalogConfig);
     const finalAllocations = [];
     const usedStockMap = new Map();
 
@@ -566,26 +643,29 @@
 
     // Detección de productos en demanda sin stock registrado (Requisito 2 Hardening)
     for (const pId of productKeys) {
-      if (pId === COCKTAIL_PRODUCT_ID) {
-        // Producto comercial único con N variedades físicas internas: solo procede avisar
-        // de ausencia de stock si NINGUNA variedad registrada tiene stock declarado.
-        const varietyIds = getVarietyIds(COCKTAIL_PRODUCT_ID);
-        const hasAnyVarietyStock = varietyIds.some(vId => stockMap.has(getStockKey(COCKTAIL_PRODUCT_ID, vId)));
+      const article = getArticle(pId, catalogConfig);
+      const strategy = getAllocationStrategy(pId, catalogConfig);
+      const varietyIds = getVarietyIds(pId, catalogConfig);
+
+      if (strategy === 'MONOVARIETAL_FIFO') {
+        // Artículo con N variedades físicas internas: solo procede avisar de
+        // ausencia de stock si NINGUNA variedad registrada tiene stock declarado.
+        const hasAnyVarietyStock = varietyIds.some(vId => stockMap.has(getStockKey(pId, vId)));
         if (!hasAnyVarietyStock) {
           warnings.push({
             code: 'PRODUCT_WITHOUT_STOCK',
-            productId: COCKTAIL_PRODUCT_ID,
-            message: `Demanda de COCKTAIL_ROMANTICO presente (${demandByProduct['COCKTAIL_ROMANTICO']} cjs), pero no se ha registrado stock disponible en el almacén.`
+            productId: pId,
+            message: `Demanda de ${pId} presente (${demandByProduct[pId]} cjs), pero no se ha registrado stock disponible en el almacén.`
           });
           for (const vId of varietyIds) {
-            const key = getStockKey(COCKTAIL_PRODUCT_ID, vId);
+            const key = getStockKey(pId, vId);
             if (!stockMap.has(key)) {
-              stockMap.set(key, { productId: COCKTAIL_PRODUCT_ID, varietyId: vId, available: 0, stockKey: key });
+              stockMap.set(key, { productId: pId, varietyId: vId, available: 0, stockKey: key });
             }
           }
         }
       } else {
-        const vId = (pId === 'CHERRY_RAMA') ? 'SUNSTREAM' : null;
+        const vId = resolveDefaultVariety(article, varietyIds);
         const key = getStockKey(pId, vId);
         if (!stockMap.has(key)) {
           warnings.push({
@@ -602,6 +682,11 @@
       // Pedidos activos para este producto comercial
       const productLines = activeLines.filter(l => l.productId === pId);
       if (productLines.length === 0) continue;
+
+      // Configuración declarada por el catálogo para este artículo.
+      const article = getArticle(pId, catalogConfig);
+      const strategy = getAllocationStrategy(pId, catalogConfig);
+      const varietyIds = getVarietyIds(pId, catalogConfig);
 
       // Construir mapa de demanda por pedido individual y mapa de resolución inversa
       const solverDemandMap = {};
@@ -680,24 +765,36 @@
       }
 
       // =====================================================================
-      // PRODUCTO 1: COCKTAIL ROMÁNTICO (FIFO + RESTRICCIÓN MONOVARIETAL)
+      // ASIGNACIÓN SEGÚN ESTRATEGIA DECLARADA POR EL ARTÍCULO
       // =====================================================================
-      if (pId === COCKTAIL_PRODUCT_ID) {
+      if (strategy === 'MONOVARIETAL_FIFO') {
         const varietyStocks = {};
-        for (const vId of getVarietyIds(COCKTAIL_PRODUCT_ID)) {
-          varietyStocks[vId] = getAvailableStock(COCKTAIL_PRODUCT_ID, vId);
+        for (const vId of varietyIds) {
+          varietyStocks[vId] = getAvailableStock(pId, vId);
+        }
+
+        // Los dos parámetros posicionales históricos (Sao Paulo / Sunstream) se
+        // conservan por compatibilidad; el mapa `varietyStocks` gobierna las
+        // variedades reales del artículo.
+        const fifoOptions = {
+          locks: relevantLocks,
+          catalog: catalogConfig,
+          productId: pId,
+          varietyStocks
+        };
+        const planning = (article && article.planning) || {};
+        if (planning.fifoPriorityVariety) {
+          fifoOptions.priorityVariety = planning.fifoPriorityVariety;
+        }
+        if (Array.isArray(planning.varietyPreference) && planning.varietyPreference.length > 0) {
+          fifoOptions.varietyPreference = planning.varietyPreference;
         }
 
         const cocktailRes = solveMonovarietalFIFO(
           solverDemandMap,
           varietyStocks.SAO_PAULO || 0,
           varietyStocks.SUNSTREAM || 0,
-          {
-            locks: relevantLocks,
-            catalog: catalogConfig,
-            productId: COCKTAIL_PRODUCT_ID,
-            varietyStocks
-          }
+          fifoOptions
         );
 
         if (!cocktailRes.isFeasible && cocktailRes.errors && cocktailRes.errors.length > 0) {
@@ -718,7 +815,7 @@
             orderId: line ? (line.orderId || line.id) : alloc.platform,
             platform: line ? line.platform : alloc.platform,
             deliveryDate: line ? (line.deliveryDate || 'Sin fecha') : 'Sin fecha',
-            productId: COCKTAIL_PRODUCT_ID,
+            productId: pId,
             varietyId: alloc.varietyId,
             requestedQuantity: alloc.requestedQuantity,
             allocatedQuantity: alloc.allocatedQuantity,
@@ -731,16 +828,15 @@
           });
 
           if (alloc.allocatedQuantity > 0 && alloc.varietyId) {
-            recordUsedStock(COCKTAIL_PRODUCT_ID, alloc.varietyId, alloc.allocatedQuantity);
+            recordUsedStock(pId, alloc.varietyId, alloc.allocatedQuantity);
           }
         }
       }
       // =====================================================================
-      // PRODUCTOS 2 Y 3: PERA RAMA / CHERRY RAMA / OTROS (HAMILTON ESTÁNDAR)
+      // RESTO DE ARTÍCULOS: HAMILTON ESTÁNDAR
       // =====================================================================
       else {
-        const ownVarieties = getVarietyIds(pId);
-        const vId = ownVarieties.length === 1 ? ownVarieties[0] : null;
+        const vId = resolveDefaultVariety(article, varietyIds);
         const availableStock = getAvailableStock(pId, vId);
 
         const hamRes = allocateProportionalHamilton(solverDemandMap, availableStock, relevantLocks);
@@ -820,7 +916,9 @@
 
     for (const d of dateKeys) {
       const dateAllocs = finalAllocations.filter(a => dateKeyOf(a) === d);
-      const datePalletRes = planPallets(dateAllocs, DEFAULT_PALLET_RULES, palletConfiguration);
+      const datePalletRes = planPallets(dateAllocs, effectivePalletRules, palletConfiguration, {
+        palletGuards: effectivePalletGuards
+      });
 
       const dateDemandByProd = {};
       const dateDemandByPlat = {};

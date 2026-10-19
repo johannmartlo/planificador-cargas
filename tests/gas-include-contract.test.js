@@ -91,14 +91,22 @@ check('SRC_*.html · ningún módulo contiene </script> ni </style>', () => {
 const scriptletAny = /<\?!=?\s*include\('([^']+)'\)\s*;?\s*\?>/g;
 const wrapped = /<(script|style)><\?!= include\('([^']+)'\); \?><\/\1>/g;
 
-check('index.html · 8 scriptlets include() (1 CSS + 7 JS)', () => {
-  const n = (INDEX_HTML.match(scriptletAny) || []).length;
-  if (n !== 8) throw new Error(`esperados 8, encontrados ${n}`);
+const SCRIPTLET_FILES = Array.from(INDEX_HTML.matchAll(scriptletAny)).map(m => m[1]);
+
+check('index.html · un scriptlet include() por cada artefacto SRC_* presente', () => {
+  const n = SCRIPTLET_FILES.length;
+  if (n !== SRC_FILES.length) {
+    throw new Error(`esperados ${SRC_FILES.length} (uno por SRC_*), encontrados ${n}`);
+  }
+  const missing = SRC_FILES.filter(f => SCRIPTLET_FILES.indexOf(f) === -1);
+  if (missing.length) throw new Error(`artefactos sin scriptlet: ${missing.join(', ')}`);
 });
 
-check('index.html · los 8 scriptlets van dentro de exactamente un envoltorio <script>/<style>', () => {
+check('index.html · todos los scriptlets van dentro de exactamente un envoltorio <script>/<style>', () => {
   const n = (INDEX_HTML.match(wrapped) || []).length;
-  if (n !== 8) throw new Error(`scriptlets correctamente envueltos: ${n}/8`);
+  if (n !== SCRIPTLET_FILES.length) {
+    throw new Error(`scriptlets correctamente envueltos: ${n}/${SCRIPTLET_FILES.length}`);
+  }
 });
 
 check('index.html · no queda ningún scriptlet sin resolver en el ensamblado', () => {
@@ -129,9 +137,12 @@ check('ensamblado · el CSS móvil completo llega al documento', () => {
   if (!ASSEMBLED.includes(css)) throw new Error('CSS móvil no insertado');
 });
 
-check('ensamblado · ningún módulo JS se perdió (7 bloques presentes)', () => {
+check('ensamblado · todos los módulos JS incluidos llegan al documento', () => {
   const js = SRC_FILES.filter(f => /_js\.html$/.test(f));
-  if (js.length !== 7) throw new Error(`esperados 7 módulos JS, hay ${js.length}`);
+  const jsScriptlets = SCRIPTLET_FILES.filter(f => /_js\.html$/.test(f));
+  if (js.length !== jsScriptlets.length) {
+    throw new Error(`módulos JS en gas/: ${js.length}, scriptlets JS: ${jsScriptlets.length}`);
+  }
   const missing = js.filter(f => !ASSEMBLED.includes(fs.readFileSync(path.join(GAS, f), 'utf8')));
   if (missing.length) throw new Error(`módulos ausentes: ${missing.join(', ')}`);
 });

@@ -15,14 +15,20 @@
 
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    const { DEFAULT_CATALOG } = require('./catalog.js');
-    module.exports = factory(DEFAULT_CATALOG);
+    const { DEFAULT_CATALOG, getPalletRules, getPalletGuards } = require('./catalog.js');
+    module.exports = factory(DEFAULT_CATALOG, getPalletRules, getPalletGuards);
   } else {
     root.LogisticsPalletizer = factory(
-      (root.LogisticsCatalog && root.LogisticsCatalog.DEFAULT_CATALOG) || {}
+      (root.LogisticsCatalog && root.LogisticsCatalog.DEFAULT_CATALOG) || {},
+      root.LogisticsCatalog && root.LogisticsCatalog.getPalletRules,
+      root.LogisticsCatalog && root.LogisticsCatalog.getPalletGuards
     );
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (DEFAULT_CATALOG) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (
+  DEFAULT_CATALOG,
+  getPalletRules,
+  getPalletGuards
+) {
   'use strict';
 
   // =========================================================================
@@ -41,137 +47,19 @@
    */
   const DEFAULT_REFERENCE_TOWER_HEIGHT_MM = 2278;
 
-  const DEFAULT_PALLET_RULES = {
-    PERA_RAMA: {
-      EURO: {
-        productId: 'PERA_RAMA',
-        palletType: 'EURO',
-        boxLength: 600,
-        boxWidth: 400,
-        boxHeight: 95,
-        boxHeightMm: 95,
-        palletLength: 1200,
-        palletWidth: 800,
-        palletHeight: 144,
-        boxesPerLayer: 4,
-        maxLayers: 19,
-        maxStandardBoxes: 76,
-        layerPattern: '4_PER_LAYER',
-        capacitySource: 'PHYSICAL_CONFIGURATION_OFFICIAL',
-        verified: true,
-        isRigid: true,
-        name: 'Palet Europeo Oficial Pera (4 cjs/capa, 19 capas, 76 cjs)'
-      },
-      METROCHEP: {
-        productId: 'PERA_RAMA',
-        palletType: 'METROCHEP',
-        boxLength: 600,
-        boxWidth: 400,
-        boxHeight: 95,
-        boxHeightMm: 95,
-        palletLength: 1200,
-        palletWidth: 1000,
-        palletHeight: 144,
-        boxesPerLayer: 5,
-        maxLayers: 19,
-        maxStandardBoxes: 95,
-        layerPattern: '5_PER_LAYER',
-        capacitySource: 'PHYSICAL_CONFIGURATION_OFFICIAL',
-        verified: true,
-        isRigid: true,
-        name: 'Palet Metrochep Oficial Pera (5 cjs/capa, 19 capas, 95 cjs)'
-      }
-    },
-    COCKTAIL_ROMANTICO: {
-      EURO: {
-        productId: 'COCKTAIL_ROMANTICO',
-        palletType: 'EURO',
-        boxLength: 600,
-        boxWidth: 400,
-        boxHeight: 95,
-        boxHeightMm: 95,
-        palletLength: 1200,
-        palletWidth: 800,
-        palletHeight: 144,
-        boxesPerLayer: 4,
-        maxLayers: 20,
-        maxStandardBoxes: 80,
-        layerPattern: '4_PER_LAYER',
-        capacitySource: 'PHYSICAL_CONFIGURATION_OFFICIAL',
-        verified: true,
-        isRigid: true,
-        name: 'Palet Europeo Oficial Cocktail (4 cjs/capa, 20 capas, 80 cjs)'
-      },
-      METROCHEP: {
-        productId: 'COCKTAIL_ROMANTICO',
-        palletType: 'METROCHEP',
-        boxLength: 600,
-        boxWidth: 400,
-        boxHeight: 95,
-        boxHeightMm: 95,
-        palletLength: 1200,
-        palletWidth: 1000,
-        palletHeight: 144,
-        boxesPerLayer: 5,
-        maxLayers: 20,
-        maxStandardBoxes: 100,
-        layerPattern: '5_PER_LAYER',
-        capacitySource: 'PHYSICAL_CONFIGURATION_OFFICIAL',
-        verified: true,
-        isRigid: true,
-        name: 'Palet Metrochep Oficial Cocktail (5 cjs/capa, 20 capas, 100 cjs)'
-      }
-    },
-    CHERRY_RAMA: {
-      EURO: {
-        productId: 'CHERRY_RAMA',
-        palletType: 'EURO',
-        boxLength: 400,
-        boxWidth: 300,
-        boxHeight: 97,
-        boxHeightMm: 97,
-        palletLength: 1200,
-        palletWidth: 800,
-        palletHeight: 144,
-        boxesPerLayer: 8,
-        maxLayers: 22,
-        maxStandardBoxes: 176,
-        layerPattern: '8_PER_LAYER',
-        capacitySource: 'PHYSICAL_CONFIGURATION_OFFICIAL',
-        verified: true,
-        isRigid: true,
-        name: 'Palet Europeo Oficial Cherry (8 cjs/capa, 22 capas, 176 cjs)'
-      },
-      METROCHEP: {
-        productId: 'CHERRY_RAMA',
-        palletType: 'METROCHEP',
-        boxLength: 400,
-        boxWidth: 300,
-        boxHeight: 97,
-        boxHeightMm: 97,
-        palletLength: 1200,
-        palletWidth: 1000,
-        palletHeight: 144,
-        boxesPerLayer: 10,
-        maxLayers: 22,
-        maxStandardBoxes: 220,
-        layerPattern: '10_COMBINED_ORIENTATION',
-        capacitySource: 'PHYSICAL_CONFIGURATION_OFFICIAL',
-        verified: true,
-        isRigid: true,
-        name: 'Palet Metrochep Oficial Cherry (10 cjs/capa, 22 capas, 220 cjs)'
-      }
-    }
-  };
+  // Reglas de paletización derivadas del catálogo efectivo (catalog/catalog.json).
+  // Ya no hay reglas físicas codificadas en este módulo ni umbrales obligatorios:
+  // la elección EURO/METROCHEP la decide el optimizador con las reglas físicas.
+  const DEFAULT_PALLET_GUARDS = typeof getPalletGuards === 'function' ? getPalletGuards(DEFAULT_CATALOG) : {};
+  const DEFAULT_PALLET_RULES = typeof getPalletRules === 'function' ? getPalletRules(DEFAULT_CATALOG) : {};
 
-  /**
-   * Tipo de palet predeterminado por producto
-   */
-  const DEFAULT_PALLET_TYPE_BY_PRODUCT = {
-    PERA_RAMA: 'EURO',
-    COCKTAIL_ROMANTICO: 'EURO',
-    CHERRY_RAMA: 'EURO'
-  };
+  // Formato base por producto (compatibilidad de la API pública histórica).
+  // Se deriva de los formatos declarados; no impone ningún umbral.
+  const DEFAULT_PALLET_TYPE_BY_PRODUCT = Object.keys(DEFAULT_PALLET_RULES).reduce((acc, productId) => {
+    const formats = DEFAULT_PALLET_RULES[productId] || {};
+    acc[productId] = formats.EURO ? 'EURO' : (Object.keys(formats)[0] || 'EURO');
+    return acc;
+  }, {});
 
   // =========================================================================
   // 2. VALIDACIÓN DE ENTRADAS Y COMPATIBILIDAD
@@ -399,53 +287,6 @@
   // =========================================================================
 
   /**
-   * Resuelve el tipo de palet para una combinación plataforma + producto y cantidad.
-   * Regla oficial del cliente (Fase 14.4):
-   * ¿CABEN EN UN PALET INDIVIDUAL EURO?
-   * - PERA RAMA: <= 76 cjs -> EURO; > 76 cjs -> METROCHEP
-   * - COCKTAIL ROMÁNTICO: <= 80 cjs -> EURO; > 80 cjs -> METROCHEP
-   * - CHERRY RAMA: <= 176 cjs -> EURO; > 176 cjs -> METROCHEP
-   *
-   * @param {string} platform
-   * @param {string} productId
-   * @param {Object|Function} [config]
-   * @param {number} [totalBoxes=0]
-   * @returns {string}
-   */
-  function resolvePalletType(platform, productId, config, totalBoxes = 0) {
-    if (!productId) return 'EURO';
-
-    let configuredType = null;
-    if (config && typeof config === 'object') {
-      const key = `${platform}::${productId}`;
-      if (config[key]) configuredType = config[key];
-      else if (config[productId]) configuredType = config[productId];
-    }
-
-    if (configuredType) {
-      // Regla Fase 9.1: Cherry Rama solo puede ir en METROCHEP si supera la capacidad Euro (176 cjs)
-      if (configuredType === 'METROCHEP' && productId === 'CHERRY_RAMA' && totalBoxes > 0 && totalBoxes <= 176) {
-        return 'EURO';
-      }
-      return configuredType;
-    }
-
-    if (productId === 'PERA_RAMA') {
-      return totalBoxes > 76 ? 'METROCHEP' : 'EURO';
-    }
-
-    if (productId === 'COCKTAIL_ROMANTICO') {
-      return totalBoxes > 80 ? 'METROCHEP' : 'EURO';
-    }
-
-    if (productId === 'CHERRY_RAMA') {
-      return totalBoxes > 176 ? 'METROCHEP' : 'EURO';
-    }
-
-    return 'EURO';
-  }
-
-  /**
    * Planifica la paletización de todas las asignaciones producidas por los motores de carga.
    *
    * @param {Array<Object>|{ allocations: Array<Object> }} allocationsInput - Asignaciones de carga.
@@ -478,6 +319,7 @@
     const warnings = [];
     const errors = [];
     const referenceTowerHeightMm = (options && options.referenceTowerHeightMm) || DEFAULT_REFERENCE_TOWER_HEIGHT_MM;
+    const palletGuards = (options && options.palletGuards) || DEFAULT_PALLET_GUARDS;
 
     const rawList = Array.isArray(allocationsInput)
       ? allocationsInput
@@ -565,6 +407,7 @@
       // Ejecutar optimizador global canónico para la plataforma (Fase 16.3)
       const optResult = optimizePlatformPalletization(platform, platGroupedItems, {
         palletRules,
+        palletGuards,
         palletTypeConfiguration,
         referenceTowerHeightMm
       });
@@ -915,6 +758,7 @@
    */
   function optimizePlatformPalletization(platform, platGroupedItems, options = {}) {
     const palletRules = options.palletRules || DEFAULT_PALLET_RULES;
+    const palletGuards = options.palletGuards || DEFAULT_PALLET_GUARDS;
     const referenceTowerHeightMm = options.referenceTowerHeightMm || DEFAULT_REFERENCE_TOWER_HEIGHT_MM;
     const palletTypeConfiguration = options.palletTypeConfiguration || {};
 
@@ -940,8 +784,13 @@
       for (const item of platGroupedItems) {
         const pKey = `${platform}::${item.productId}`;
         let configured = palletTypeConfiguration[pKey] || palletTypeConfiguration[item.productId];
-        if (configured === 'METROCHEP' && item.productId === 'CHERRY_RAMA' && item.totalBoxes > 0 && item.totalBoxes <= 176) {
-          // Regla Fase 9.1: Cherry Rama solo puede ir en METROCHEP si supera la capacidad Euro (176 cjs)
+        const guard = palletGuards[item.productId];
+        const euroRule = palletRules[item.productId] && palletRules[item.productId].EURO;
+        const euroCapacity = euroRule && euroRule.maxStandardBoxes;
+        if (configured === 'METROCHEP' && guard && guard.blockMetrochepBelowEuroCapacity &&
+            euroCapacity && item.totalBoxes > 0 && item.totalBoxes <= euroCapacity) {
+          // Salvaguarda declarada por el artículo: no forzar METROCHEP por debajo
+          // de la capacidad EURO. No es un umbral obligatorio por defecto.
           configured = null;
         }
         if (configured === 'EURO' || configured === 'METROCHEP') {
@@ -951,10 +800,14 @@
       }
     }
 
-    // Regla de salvaguarda adicional si se forzó a nivel plataforma: Cherry Rama solo puede ir en METROCHEP si supera la capacidad Euro (176 cjs)
-    if (forcedFormat === 'METROCHEP') {
-      const isOnlyCherry = platGroupedItems.length === 1 && platGroupedItems[0].productId === 'CHERRY_RAMA';
-      if (isOnlyCherry && platGroupedItems[0].totalBoxes > 0 && platGroupedItems[0].totalBoxes <= 176) {
+    // Salvaguarda si se forzó el formato a nivel de plataforma.
+    if (forcedFormat === 'METROCHEP' && platGroupedItems.length === 1) {
+      const only = platGroupedItems[0];
+      const guard = palletGuards[only.productId];
+      const euroRule = palletRules[only.productId] && palletRules[only.productId].EURO;
+      const euroCapacity = euroRule && euroRule.maxStandardBoxes;
+      if (guard && guard.blockMetrochepBelowEuroCapacity &&
+          euroCapacity && only.totalBoxes > 0 && only.totalBoxes <= euroCapacity) {
         forcedFormat = 'EURO';
       }
     }
@@ -995,17 +848,18 @@
    */
   function calculatePlatformStackingPlan(platform, platformGroups, options = {}) {
     const referenceTowerHeightMm = (options && options.referenceTowerHeightMm) || DEFAULT_REFERENCE_TOWER_HEIGHT_MM;
+    const activeRules = (options && options.palletRules) || DEFAULT_PALLET_RULES;
     const euroPallets = [];
     const metroPallets = [];
 
     for (const group of platformGroups) {
       const gFormat = group.palletType || group.format || 'EURO';
-      const prodRules = DEFAULT_PALLET_RULES[group.productId] || {};
+      const prodRules = activeRules[group.productId] || {};
       const formatRule = prodRules[gFormat] || {};
 
       for (const p of (group.pallets || [])) {
-        const bpl = p.boxesPerLayer || formatRule.boxesPerLayer || (gFormat === 'METROCHEP' ? (group.productId === 'CHERRY_RAMA' ? 10 : 5) : (group.productId === 'CHERRY_RAMA' ? 8 : 4));
-        const bh = p.boxHeightMm || formatRule.boxHeight || (group.productId === 'CHERRY_RAMA' ? 97 : 95);
+        const bpl = p.boxesPerLayer || formatRule.boxesPerLayer || 4;
+        const bh = p.boxHeightMm || formatRule.boxHeight || 95;
         const layers = p.layers || Math.ceil(p.boxes / bpl);
         const merchandiseHeightMm = p.merchandiseHeightMm || (layers * bh);
         const palletHeightMm = p.palletHeightMm || PALLET_WOOD_HEIGHT_MM;
@@ -1086,7 +940,6 @@
     DEFAULT_PALLET_RULES,
     DEFAULT_PALLET_TYPE_BY_PRODUCT,
     validatePalletCompatibility,
-    resolvePalletType,
     calculatePalletization,
     buildTower,
     packPalletsIntoTowers,

@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "2026.10.19.2",
+  "globals": {
+    "palletWoodHeightMm": 144,
+    "maxTowerHeightMm": 2278,
+    "maxPalletsPerTower": 3
+  },
+  "platforms": {
+    "canonical": [
+      "CENTRO",
+      "CATALUÑA",
+      "LEVANTE",
+      "SUR",
+      "SANTANDER",
+      "MALAGA"
+    ],
+    "aliases": {
+      "CENTRO": "CENTRO",
+      "CATALUÑA": "CATALUÑA",
+      "CATALUNA": "CATALUÑA",
+      "CATALUNYA": "CATALUÑA",
+      "LEVANTE": "LEVANTE",
+      "SUR": "SUR",
+      "SANTANDER": "SANTANDER",
+      "MALAGA": "MALAGA",
+      "MÁLAGA": "MALAGA"
+    }
+  },
+  "articles": [
+    {
+      "id": "PERA_RAMA",
+      "status": "ACTIVE",
+      "name": "TOMATE PERA RAMA",
+      "shortName": "Pera Rama",
+      "hasMonovarietalRestriction": false,
+      "identification": {
+        "gisCodes": [
+          "14072"
+        ],
+        "patterns": [
+          {
+            "value": "PERA\\s*RAMA",
+            "flags": "i"
+          }
+        ],
+        "varietyDetection": {
+          "mode": "NONE"
+        }
+      },
+      "stockAliases": {},
+      "varieties": [],
+      "defaultVarietyId": null,
+      "box": {
+        "lengthMm": 600,
+        "widthMm": 400,
+        "heightMm": 95
+      },
+      "palletization": {
+        "formats": {
+          "EURO": {
+            "palletLengthMm": 1200,
+            "palletWidthMm": 800,
+            "palletHeightMm": 144,
+            "boxesPerLayer": 4,
+            "maxLayers": 19,
+            "layerPattern": "4_PER_LAYER",
+            "isRigid": true,
+            "capacitySource": "PHYSICAL_CONFIGURATION_OFFICIAL",
+            "verified": true,
+            "name": "Palet Europeo Oficial Pera (4 cjs/capa, 19 capas, 76 cjs)"
+          },
+          "METROCHEP": {
+            "palletLengthMm": 1200,
+            "palletWidthMm": 1000,
+            "palletHeightMm": 144,
+            "boxesPerLayer": 5,
+            "maxLayers": 19,
+            "layerPattern": "5_PER_LAYER",
+            "isRigid": true,
+            "capacitySource": "PHYSICAL_CONFIGURATION_OFFICIAL",
+            "verified": true,
+            "name": "Palet Metrochep Oficial Pera (5 cjs/capa, 19 capas, 95 cjs)"
+          }
+        }
+      },
+      "planning": {
+        "allocationStrategy": "HAMILTON",
+        "fifoPriorityVariety": null,
+        "varietyPreference": []
+      }
+    },
+    {
+      "id": "COCKTAIL_ROMANTICO",
+      "status": "ACTIVE",
+      "name": "TOMATE COCKTAIL ROMÁNTICO",
+      "shortName": "Cocktail Romántico",
+      "hasMonovarietalRestriction": true,
+      "identification": {
+        "gisCodes": [
+          "16228"
+        ],
+        "patterns": [
+          {
+            "value": "COCKT.*ROMANT",
+            "flags": "i"
+          }
+        ],
+        "varietyDetection": {
+          "mode": "NONE"
+        }
+      },
+      "stockAliases": {
+        "CONSABOR": "CONSABOR",
+        "SAO_PAULO": "SAO_PAULO",
+        "SUNSTREAM": "SUNSTREAM"
+      },
+      "varieties": [
+        {
+          "id": "CONSABOR",
+          "name": "Consabor",
+          "isOldLot": false,
+          "fifoPriority": 2
+        },
+        {
+          "id": "SAO_PAULO",
+          "name": "Sao Paulo",
+          "isOldLot": true,
+          "fifoPriority": 1
+        },
+        {
+          "id": "SUNSTREAM",
+          "name": "Sunstream",
+          "isOldLot": false,
+          "fifoPriority": 2
+        }
+      ],
+      "defaultVarietyId": null,
+      "box": {
+        "lengthMm": 600,
+        "widthMm": 400,
+        "heightMm": 95
+      },
+      "palletization": {
+        "formats": {
+          "EURO": {
+            "palletLengthMm": 1200,
+            "palletWidthMm": 800,
+            "palletHeightMm": 144,
+            "boxesPerLayer": 4,
+            "maxLayers": 20,
+            "layerPattern": "4_PER_LAYER",
+            "isRigid": true,
+            "capacitySource": "PHYSICAL_CONFIGURATION_OFFICIAL",
+            "verified": true,
+            "name": "Palet Europeo Oficial Cocktail (4 cjs/capa, 20 capas, 80 cjs)"
+          },
+          "METROCHEP": {
+            "palletLengthMm": 1200,
+            "palletWidthMm": 1000,
+            "palletHeightMm": 144,
+            "boxesPerLayer": 5,
+            "maxLayers": 20,
+            "layerPattern": "5_PER_LAYER",
+            "isRigid": true,
+            "capacitySource": "PHYSICAL_CONFIGURATION_OFFICIAL",
+            "verified": true,
+            "name": "Palet Metrochep Oficial Cocktail (5 cjs/capa, 20 capas, 100 cjs)"
+          }
+        }
+      },
+      "planning": {
+        "allocationStrategy": "MONOVARIETAL_FIFO",
+        "fifoPriorityVariety": "SAO_PAULO",
+        "varietyPreference": [
+          "CONSABOR",
+          "SAO_PAULO",
+          "SUNSTREAM"
+        ]
+      }
+    },
+    {
+      "id": "CHERRY_RAMA",
+      "status": "ACTIVE",
+      "name": "TOMATE CHERRY RAMA SUNSTREAM",
+      "shortName": "Cherry Rama",
+      "hasMonovarietalRestriction": false,
+      "identification": {
+        "gisCodes": [
+          "18746"
+        ],
+        "patterns": [
+          {
+            "value": "CHERRY\\s*RAMA",
+            "flags": "i"
+          }
+        ],
+        "varietyDetection": {
+          "mode": "DESCRIPTION_PATTERN",
+          "pattern": "SUNSTREAM",
+          "flags": "i",
+          "varietyId": "SUNSTREAM"
+        }
+      },
+      "stockAliases": {},
+      "varieties": [
+        {
+          "id": "SUNSTREAM",
+          "name": "Sunstream",
+          "isOldLot": false,
+          "fifoPriority": 1
+        }
+      ],
+      "defaultVarietyId": "SUNSTREAM",
+      "box": {
+        "lengthMm": 400,
+        "widthMm": 300,
+        "heightMm": 97
+      },
+      "palletization": {
+        "formats": {
+          "EURO": {
+            "palletLengthMm": 1200,
+            "palletWidthMm": 800,
+            "palletHeightMm": 144,
+            "boxesPerLayer": 8,
+            "maxLayers": 22,
+            "layerPattern": "8_PER_LAYER",
+            "isRigid": true,
+            "capacitySource": "PHYSICAL_CONFIGURATION_OFFICIAL",
+            "verified": true,
+            "name": "Palet Europeo Oficial Cherry (8 cjs/capa, 22 capas, 176 cjs)"
+          },
+          "METROCHEP": {
+            "palletLengthMm": 1200,
+            "palletWidthMm": 1000,
+            "palletHeightMm": 144,
+            "boxesPerLayer": 10,
+            "maxLayers": 22,
+            "layerPattern": "10_COMBINED_ORIENTATION",
+            "isRigid": true,
+            "capacitySource": "PHYSICAL_CONFIGURATION_OFFICIAL",
+            "verified": true,
+            "name": "Palet Metrochep Oficial Cherry (10 cjs/capa, 22 capas, 220 cjs)"
+          }
+        },
+        "overrideGuard": {
+          "blockMetrochepBelowEuroCapacity": true
+        }
+      },
+      "planning": {
+        "allocationStrategy": "HAMILTON",
+        "fifoPriorityVariety": null,
+        "varietyPreference": []
+      }
+    }
+  ]
+}

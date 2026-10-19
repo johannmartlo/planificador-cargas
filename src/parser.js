@@ -203,10 +203,23 @@
       const varietyId = productInfo.varietyId;
 
       if (productId === 'UNKNOWN') {
-        lineErrors.push({
-          code: 'UNKNOWN_PRODUCT',
-          message: `Producto no reconocido para GIS "${gisCode}" o descripción "${productDescription}".`
-        });
+        const productErrorCode = productInfo.errorCode || 'UNKNOWN_PRODUCT';
+        if (productErrorCode === 'AMBIGUOUS_PRODUCT') {
+          lineErrors.push({
+            code: 'AMBIGUOUS_PRODUCT',
+            message: `Identificación ambigua para GIS "${gisCode}" o descripción "${productDescription}". Candidatos: ${(productInfo.candidates || []).join(', ') || 'desconocidos'}.`
+          });
+        } else if (productErrorCode === 'INACTIVE_ARTICLE') {
+          lineErrors.push({
+            code: 'INACTIVE_ARTICLE',
+            message: `El artículo ${productInfo.articleId || 'desconocido'} está inactivo y no puede planificarse.`
+          });
+        } else {
+          lineErrors.push({
+            code: 'UNKNOWN_PRODUCT',
+            message: `Producto no reconocido para GIS "${gisCode}" o descripción "${productDescription}".`
+          });
+        }
       }
 
       const isValid = lineErrors.length === 0;
@@ -271,6 +284,7 @@
    *
    * @param {Array<Object>} orderLines - Array de líneas obtenido de parseRawText.
    * @param {Array<Object>} [exclusions] - Lista de exclusiones ({ type: 'PRODUCT'|'PLATFORM'|'LINE', target: string }).
+   * @param {Object} [catalog=DEFAULT_CATALOG] - Catálogo que define el orden canónico de plataformas.
    * @returns {{
    *   activeLines: Array<Object>,
    *   platforms: Array<string>,
@@ -280,7 +294,7 @@
    *   totalGeneral: number
    * }}
    */
-  function aggregateDemands(orderLines, exclusions = []) {
+  function aggregateDemands(orderLines, exclusions = [], catalog = DEFAULT_CATALOG) {
     if (!Array.isArray(orderLines)) {
       return {
         activeLines: [],
@@ -345,7 +359,8 @@
     }
 
     // Orden canónico de plataformas
-    const canonicalOrder = DEFAULT_CATALOG.platforms.canonical;
+    const canonicalOrder = (catalog.platforms && catalog.platforms.canonical) ||
+      DEFAULT_CATALOG.platforms.canonical;
     const sortedPlatforms = Array.from(platformsSet).sort((a, b) => {
       let idxA = canonicalOrder.indexOf(a);
       let idxB = canonicalOrder.indexOf(b);

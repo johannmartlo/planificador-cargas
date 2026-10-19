@@ -25,6 +25,7 @@ const { createDocument } = require(path.join(__dirname, 'helpers', 'mini-dom.js'
 
 const ROOT = path.join(__dirname, '..');
 const GAS = path.join(ROOT, 'gas');
+const SRC_FILES = fs.readdirSync(GAS).filter(f => /^SRC_.*\.html$/.test(f)).sort();
 
 const results = [];
 function check(name, fn) {
@@ -133,8 +134,15 @@ check('.clasp.json · Script ID exacto y rootDir=gas', () => {
   assert.strictEqual(cfg.rootDir, 'gas');
 });
 
-check('index.html (GAS) · resuelve exactamente 8 scriptlets (1 CSS + 7 JS)', () => {
-  assert.strictEqual(rendered.scriptlets, 8, `scriptlets encontrados: ${rendered.scriptlets}`);
+check('index.html (GAS) · un scriptlet include() por cada artefacto SRC_*', () => {
+  assert.strictEqual(rendered.scriptlets, SRC_FILES.length,
+    `scriptlets: ${rendered.scriptlets}, artefactos SRC_*: ${SRC_FILES.length}`);
+  const template = fs.readFileSync(path.join(GAS, 'index.html'), 'utf8');
+  const included = Array.from(template.matchAll(/include\('([^']+)'\)/g)).map(m => m[1]);
+  const missing = SRC_FILES.filter(f => included.indexOf(f) === -1);
+  if (missing.length) throw new Error(`artefactos sin include(): ${missing.join(', ')}`);
+  const notEmbedded = SRC_FILES.filter(f => !rendered.html.includes(fs.readFileSync(path.join(GAS, f), 'utf8')));
+  if (notEmbedded.length) throw new Error(`artefactos no insertados: ${notEmbedded.join(', ')}`);
 });
 
 check('index.html (GAS) · tras resolver no queda ningún scriptlet', () => {
@@ -170,7 +178,7 @@ check('bundle · contiene el CSS móvil completo (43.532 bytes)', () => {
   assert.ok(styles.length >= 2, 'se esperaban el <style> móvil y el de escritorio');
 });
 
-check('bundle · los 7 módulos + el script de tema se ejecutan y registran sus globals', () => {
+check('bundle · todos los módulos + el script de tema se ejecutan y registran sus globals', () => {
   // Contexto de NAVEGADOR: sin module/exports -> rama root.LogisticsX de los UMD
   const store = {};
   const sandbox = {
@@ -211,6 +219,10 @@ check('bundle · los 7 módulos + el script de tema se ejecutan y registran sus 
     'LogisticsCatalog', 'LogisticsParser', 'LogisticsHamilton',
     'LogisticsCocktail', 'LogisticsPalletizer', 'LogisticsOrchestrator', 'LogisticsUI'
   ];
+  // El bundle futuro incluye catalog-data.js; se exige solo si el artefacto existe.
+  if (SRC_FILES.indexOf('SRC_catalog_data_js.html') !== -1) {
+    expected.push('LogisticsCatalogData');
+  }
   for (const g of expected) {
     assert.ok(sandbox[g], `no se registró window.${g}`);
   }
