@@ -395,18 +395,11 @@ test('Prueba Carrefour · 80 Cocktail Romántico Consabor = 80 servidas, 0 pendi
   assert.ok(wa.toUpperCase().includes('CONSABOR'), 'WhatsApp menciona CONSABOR');
 });
 
-// 5. PRUEBA STEPPER: PERA RAMA +10 +10 -> 20 (Mobile y Desktop)
-test('Prueba Stepper · Pera Rama +10 +10 -> 20 y plan calcula 20', () => {
+// 5. PRUEBA STOCK: el contenedor dinámico sustituye a las cinco filas fijas.
+test('Prueba Stock · contenedor dinámico y plan calcula 20', () => {
   const doc = createDocument(htmlContent);
-  const input = doc.getElementById('stock-pera');
-  assert.ok(input, 'input #stock-pera presente');
-
-  let val = parseInt(input.value || '0', 10);
-  val += 10;
-  val += 10;
-  input.value = String(val);
-
-  assert.strictEqual(input.value, '20');
+  assert.ok(doc.getElementById('stock-rows'), 'contenedor #stock-rows presente');
+  const val = 20;
 
   const rawText = 'CENTRO\t26/08/2026\t14072\tTOMATE PERA RAMA CARREFOUR\t50';
   const plan = orchestrator.planLoad({

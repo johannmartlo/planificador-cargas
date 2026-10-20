@@ -730,6 +730,55 @@
       }
     }
   </style>
+  <style>
+    /* V4.8 · router móvil de la vista Catálogo (no altera mobile.css). */
+    @media (max-width: 1023.98px) {
+      main[data-view="catalog"] #catalog-section { display: block; }
+      main[data-view="catalog"]:not([data-view="forecast"]):not([data-view="stock"]):not([data-view="plan"]):not([data-view="more"]):not([data-view="locks"]):not([data-view="options"]) #mobile-kpi-summary,
+      main[data-view="catalog"]:not([data-view="forecast"]):not([data-view="stock"]):not([data-view="plan"]):not([data-view="more"]):not([data-view="locks"]):not([data-view="options"]) #results-column { display: none !important; }
+
+      /* V4.8.2 · filas de stock dinámicas: heredan el ritmo táctil móvil.
+         Se declaran aquí (no en mobile.css) para no invalidar el bundle GAS
+         actual, que no se regenera en esta entrega. */
+      #stock-section #stock-rows > .grid.grid-cols-12 {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        gap: 10px !important;
+        padding: 10px 0 !important;
+      }
+      #stock-section #stock-rows > .grid.grid-cols-12 > .col-span-8 {
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        font-size: 15px !important;
+        line-height: 1.4 !important;
+        font-weight: 700 !important;
+      }
+      #stock-section #stock-rows > .grid.grid-cols-12 > .col-span-4 {
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        justify-content: stretch !important;
+      }
+
+      /* El input de alta no es un stepper: la regla móvil de stock le daba
+         `width:auto` y desbordaba a 320 px. */
+      #stock-section #stock-add-quantity {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        flex: 0 0 auto !important;
+        box-sizing: border-box !important;
+      }
+      #stock-add-panel .grid > label { min-width: 0; }
+    }
+
+    /* En 361–479 px el header aún no aplicaba los topes de la variante estrecha;
+       los badges largos (pendientes/estado) desbordaban 4–10 px. */
+    @media (min-width: 361px) and (max-width: 479.98px) {
+      #mobile-header #badge-plan-status { max-width: 72px !important; }
+      #mobile-header #badge-plan-sync { max-width: 96px !important; }
+    }
+  </style>
 </head>
 <body class="bg-[#0B0C0E] text-[#EDEDEF] antialiased min-h-screen flex flex-col font-sans">
 
@@ -783,6 +832,12 @@
         <span id="badge-plan-status" class="px-2.5 py-0.5 rounded text-xs font-mono font-medium uppercase tracking-wider bg-[#16181B] text-[#8A8F98] border border-[#22252A] transition-colors">
           IDLE
         </span>
+        <button
+          id="btn-open-catalog-desktop"
+          type="button"
+          class="px-2.5 py-1 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] text-[11px] font-semibold transition-colors"
+          title="Ir al catálogo de artículos"
+        >Catálogo</button>
         <button
           id="btn-theme-toggle-desktop"
           class="btn-theme-toggle"
@@ -1242,96 +1297,41 @@
         </div>
       </div>
 
+      <p id="stock-persistence-note" class="text-[11px] text-[#8A8F98]"></p>
+      <p id="stock-load-error" role="alert" class="hidden p-2 rounded bg-amber-950/30 border border-amber-800/50 text-amber-200 text-xs"></p>
+      <p id="stock-storage-error" role="alert" class="hidden p-2 rounded bg-rose-950/40 border border-rose-800/60 text-rose-200 text-xs"></p>
+
       <div class="divide-y divide-white/[0.04]">
         <div class="grid grid-cols-12 gap-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#5E6470]">
           <div class="col-span-8">PRODUCTO / VARIEDAD</div>
           <div class="col-span-4 text-right">STOCK DISPONIBLE</div>
         </div>
+        <div id="stock-rows"></div>
+      </div>
 
-        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
-          <div class="col-span-8 font-semibold text-[#EDEDEF]">
-            <span class="stock-id">
-              <span class="sid-prod">Pera Rama</span>
-            </span>
-          </div>
-          <div class="col-span-4 flex items-center justify-end gap-1.5">
-            <div class="stock-stepper">
-            <button type="button" class="stock-step" data-stock-target="stock-pera" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
-            <input id="stock-pera" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
-            <span class="stock-unit">cjs</span>
-            <button type="button" class="stock-step" data-stock-target="stock-pera" data-stock-delta="10" data-stock-max="76" aria-label="Sumar 10 cajas">+</button>
-            </div>
+      <div id="stock-add-panel" class="border border-[#22252A] rounded-lg p-3 bg-[#0B0C0E] space-y-2">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-[#EDEDEF]">Añadir existencia</h4>
+          <p class="text-[10px] text-[#5E6470]">Solo artículos activos del catálogo actual</p>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <label class="block text-xs">
+            <span class="block text-[10px] font-semibold text-[#8A8F98] mb-1">Artículo</span>
+            <select id="stock-add-article" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs text-white"></select>
+          </label>
+          <label class="block text-xs">
+            <span class="block text-[10px] font-semibold text-[#8A8F98] mb-1">Variedad</span>
+            <select id="stock-add-variety" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs text-white"></select>
+          </label>
+          <label class="block text-xs">
+            <span class="block text-[10px] font-semibold text-[#8A8F98] mb-1">Cajas</span>
+            <input id="stock-add-quantity" type="number" min="1" step="1" required placeholder="0" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs text-white" />
+          </label>
+          <div class="flex items-end">
+            <button id="btn-add-stock-line" type="button" class="w-full p-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors">Añadir línea</button>
           </div>
         </div>
-
-        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
-          <div class="col-span-8 font-semibold text-[#EDEDEF]">
-            <span class="stock-id">
-              <span class="sid-prod">Cocktail Romantico</span>
-              <span class="sid-var is-variety">Consabor</span>
-            </span>
-          </div>
-          <div class="col-span-4 flex items-center justify-end gap-1.5">
-            <div class="stock-stepper">
-            <button type="button" class="stock-step" data-stock-target="stock-cocktail-consabor" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
-            <input id="stock-cocktail-consabor" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
-            <span class="stock-unit">cjs</span>
-            <button type="button" class="stock-step" data-stock-target="stock-cocktail-consabor" data-stock-delta="10" data-stock-max="80" aria-label="Sumar 10 cajas">+</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
-          <div class="col-span-8 font-semibold text-[#EDEDEF]">
-            <span class="stock-id">
-              <span class="sid-prod">Cocktail Romantico</span>
-              <span class="sid-var is-variety">Sao Paulo</span>
-              <span class="sid-unit">FIFO</span>
-            </span>
-          </div>
-          <div class="col-span-4 flex items-center justify-end gap-1.5">
-            <div class="stock-stepper">
-            <button type="button" class="stock-step" data-stock-target="stock-cocktail-sp" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
-            <input id="stock-cocktail-sp" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
-            <span class="stock-unit">cjs</span>
-            <button type="button" class="stock-step" data-stock-target="stock-cocktail-sp" data-stock-delta="10" data-stock-max="80" aria-label="Sumar 10 cajas">+</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
-          <div class="col-span-8 font-semibold text-[#EDEDEF]">
-            <span class="stock-id">
-              <span class="sid-prod">Cocktail Romantico</span>
-              <span class="sid-var is-variety">Sunstream</span>
-            </span>
-          </div>
-          <div class="col-span-4 flex items-center justify-end gap-1.5">
-            <div class="stock-stepper">
-            <button type="button" class="stock-step" data-stock-target="stock-cocktail-sun" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
-            <input id="stock-cocktail-sun" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
-            <span class="stock-unit">cjs</span>
-            <button type="button" class="stock-step" data-stock-target="stock-cocktail-sun" data-stock-delta="10" data-stock-max="80" aria-label="Sumar 10 cajas">+</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm">
-          <div class="col-span-8 font-semibold text-[#EDEDEF]">
-            <span class="stock-id">
-              <span class="sid-prod">Cherry Rama</span>
-              <span class="sid-var is-variety">Sunstream</span>
-            </span>
-          </div>
-          <div class="col-span-4 flex items-center justify-end gap-1.5">
-            <div class="stock-stepper">
-            <button type="button" class="stock-step" data-stock-target="stock-cherry-sun" data-stock-delta="-10" aria-label="Restar 10 cajas">&minus;</button>
-            <input id="stock-cherry-sun" type="number" min="0" value="0" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors" />
-            <span class="stock-unit">cjs</span>
-            <button type="button" class="stock-step" data-stock-target="stock-cherry-sun" data-stock-delta="10" data-stock-max="176" aria-label="Sumar 10 cajas">+</button>
-            </div>
-          </div>
-        </div>
+        <p id="stock-add-error" role="alert" class="hidden p-2 rounded bg-rose-950/40 border border-rose-800/60 text-rose-200 text-xs whitespace-pre-line"></p>
       </div>
 
       <!-- FASE 18.6 · §4 · PASO 3 del flujo: BLOQUEOS Y EXCEPCIONES.
@@ -1413,6 +1413,10 @@
         </button>
         <button type="button" class="mm-item" id="btn-more-options">
           <span class="mm-left"><span class="mm-ico">⚙️</span><span>Opciones avanzadas<span class="mm-sub">Excepciones de palet, exclusiones y tablas técnicas</span></span></span>
+          <span class="mm-chev">›</span>
+        </button>
+        <button type="button" class="mm-item" id="btn-more-catalog">
+          <span class="mm-left"><span class="mm-ico">📦</span><span>Catálogo de artículos<span class="mm-sub">Alta, edición y activación</span></span></span>
           <span class="mm-chev">›</span>
         </button>
       </div>
@@ -1646,6 +1650,95 @@
       </details>
     </section>
 
+    <!-- 6B. CATÁLOGO DE ARTÍCULOS (V4.8) -->
+    <section id="catalog-section" data-view="catalog" class="border border-[#22252A] rounded-lg p-5 bg-[#121316] space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-[#EDEDEF]">Catálogo de Artículos</h2>
+          <p class="text-[11px] text-[#8A8F98] mt-1">Consulta, alta, edición y activación de artículos. Los cambios afectan a este navegador.</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span id="catalog-source-badge" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#16181B] text-[#8A8F98] border border-[#22252A]">CATÁLOGO POR DEFECTO</span>
+          <button id="btn-catalog-new" type="button" class="px-3 py-1.5 rounded bg-[#EDEDEF] hover:bg-white text-[#0B0C0E] text-xs font-bold transition-colors">+ Nuevo artículo</button>
+          <button id="btn-catalog-reset" type="button" class="px-3 py-1.5 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] text-xs font-semibold transition-colors">Restaurar</button>
+        </div>
+      </div>
+
+      <p id="catalog-persistence-note" class="text-[11px] text-[#8A8F98]"></p>
+      <p id="catalog-load-error" class="hidden p-2 rounded bg-amber-950/30 border border-amber-800/50 text-amber-200 text-xs"></p>
+
+      <div id="catalog-articles-list" class="space-y-2"></div>
+
+      <div id="catalog-editor-panel" class="hidden border border-[#22252A] rounded-lg p-4 bg-[#0B0C0E] space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <h3 id="catalog-form-title" class="text-xs font-bold uppercase tracking-wider text-[#EDEDEF]">Nuevo artículo</h3>
+          <span class="text-[10px] text-[#5E6470]">Los campos marcados son obligatorios</span>
+        </div>
+        <div id="catalog-form-error" class="hidden p-2 rounded bg-rose-950/40 border border-rose-800/60 text-rose-200 text-xs whitespace-pre-line"></div>
+        <p id="catalog-form-note" class="text-[11px] text-[#8A8F98]"></p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <label class="block">
+            <span class="block font-semibold text-[#8A8F98] mb-1">Identificador interno (ID) *</span>
+            <input id="catalog-id" type="text" placeholder="EJ. TOMATE_KIWI" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs font-mono font-bold text-white focus:outline-none focus:border-[#EDEDEF]" />
+          </label>
+          <label class="block">
+            <span class="block font-semibold text-[#8A8F98] mb-1">Estado *</span>
+            <select id="catalog-status" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs text-white">
+              <option value="ACTIVE">Activo</option>
+              <option value="INACTIVE">Inactivo</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="block font-semibold text-[#8A8F98] mb-1">Nombre comercial *</span>
+            <input id="catalog-name" type="text" placeholder="TOMATE KIWI" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs text-white focus:outline-none focus:border-[#EDEDEF]" />
+          </label>
+          <label class="block">
+            <span class="block font-semibold text-[#8A8F98] mb-1">Nombre corto (UI)</span>
+            <input id="catalog-short-name" type="text" placeholder="Kiwi" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs text-white focus:outline-none focus:border-[#EDEDEF]" />
+          </label>
+          <label class="block">
+            <span class="block font-semibold text-[#8A8F98] mb-1">Códigos GIS (separados por coma) *</span>
+            <input id="catalog-gis" type="text" placeholder="14072, 14073" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs font-mono text-white focus:outline-none focus:border-[#EDEDEF]" />
+          </label>
+          <label class="block">
+            <span class="block font-semibold text-[#8A8F98] mb-1">Patrón de descripción (regex)</span>
+            <input id="catalog-pattern" type="text" placeholder="Si se deja vacío se deriva del nombre" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-xs font-mono text-white focus:outline-none focus:border-[#EDEDEF]" />
+          </label>
+        </div>
+
+        <p class="text-[11px] font-bold uppercase tracking-wider text-[#5E6470] pt-1">Caja (mm)</p>
+        <div class="grid grid-cols-3 gap-2 text-xs">
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Largo *</span><input id="catalog-box-length" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Ancho *</span><input id="catalog-box-width" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Alto *</span><input id="catalog-box-height" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+        </div>
+
+        <p class="text-[11px] font-bold uppercase tracking-wider text-[#5E6470] pt-1">Palet EURO</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Largo base *</span><input id="catalog-euro-pallet-length" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Ancho base *</span><input id="catalog-euro-pallet-width" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Cajas/capa *</span><input id="catalog-euro-boxes-per-layer" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Capas máx *</span><input id="catalog-euro-max-layers" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+        </div>
+
+        <p class="text-[11px] font-bold uppercase tracking-wider text-[#5E6470] pt-1">Palet METROCHEP</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Largo base *</span><input id="catalog-metro-pallet-length" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Ancho base *</span><input id="catalog-metro-pallet-width" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Cajas/capa *</span><input id="catalog-metro-boxes-per-layer" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+          <label class="block"><span class="block text-[#8A8F98] mb-1">Capas máx *</span><input id="catalog-metro-max-layers" type="number" min="1" class="w-full p-2 rounded bg-[#16181B] border border-[#22252A] text-white" /></label>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-[#22252A]">
+          <button id="btn-catalog-cancel" type="button" class="px-3 py-1.5 rounded bg-[#16181B] hover:bg-[#1D2024] text-[#EDEDEF] border border-[#22252A] text-xs font-semibold">Cancelar</button>
+          <button id="btn-catalog-save" type="button" class="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">Guardar artículo</button>
+        </div>
+      </div>
+
+      <button id="btn-catalog-back" type="button" class="mobile-only w-full py-2 rounded bg-[#16181B] text-[#8A8F98] border border-[#22252A] text-xs font-semibold">← Volver a Más</button>
+    </section>
+
     <!-- 7. ACCIONES DE SALIDA (TOOLBAR OPERATIVO) -->
     <section id="actions-toolbar" data-view="more" class="hidden border border-[#22252A] rounded-lg p-4 bg-[#121316]">
       <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -1852,6 +1945,9 @@
   <!-- Carga de Módulos UMD del Motor Logístico en Orden Estricto de Dependencia -->
   <script src="src/catalog-data.js"></script>
   <script src="src/catalog.js"></script>
+  <script src="src/catalog-schema.js"></script>
+  <script src="src/catalog-editor.js"></script>
+  <script src="src/stock-editor.js"></script>
   <script src="src/parser.js"></script>
   <script src="src/hamilton.js"></script>
   <script src="src/cocktail-solver.js"></script>

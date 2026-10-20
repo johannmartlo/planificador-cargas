@@ -223,6 +223,15 @@ check('bundle · todos los módulos + el script de tema se ejecutan y registran 
   if (SRC_FILES.indexOf('SRC_catalog_data_js.html') !== -1) {
     expected.push('LogisticsCatalogData');
   }
+  if (SRC_FILES.indexOf('SRC_catalog_schema_js.html') !== -1) {
+    expected.push('LogisticsCatalogSchema');
+  }
+  if (SRC_FILES.indexOf('SRC_catalog_editor_js.html') !== -1) {
+    expected.push('LogisticsCatalogEditor');
+  }
+  if (SRC_FILES.indexOf('SRC_stock_editor_js.html') !== -1) {
+    expected.push('LogisticsStockEditor');
+  }
   for (const g of expected) {
     assert.ok(sandbox[g], `no se registró window.${g}`);
   }

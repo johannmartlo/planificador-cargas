@@ -158,8 +158,9 @@ check('CSS · el estado vacío del PLAN no es un rectángulo gigante', () => {
 
 check('CSS · la capacidad técnica del palet no se expone en la UI de Stock', () => {
   // "76 cjs/palet EURO" es una regla interna del palletizer, no un dato para
-  // introducir stock. El marcado sigue existiendo (compartido con Desktop).
-  assert.ok(HTML.includes('sid-unit'), 'el marcado compartido con Desktop debe seguir intacto');
+  // introducir stock. La tabla se genera desde ui.js; el marcado técnico sigue
+  // existiendo y el CSS móvil lo oculta.
+  assert.ok(UI_JS.includes('sid-unit'), 'el marcado técnico de la tabla dinámica debe seguir existiendo');
   assert.ok(/\.stock-id \.sid-unit\s*\{\s*display:\s*none/.test(CSS),
     'la metadata técnica del palet sigue visible en móvil');
 });
@@ -320,22 +321,17 @@ check('HTML · acciones PDF / WhatsApp / Imprimir accesibles desde móvil', () =
   }
 });
 
-check('HTML · steppers táctiles de stock con sus 5 entradas', () => {
-  const targets = Array.from(HTML.matchAll(/data-stock-target="([a-z-]+)"/g)).map(m => m[1]);
-  assert.deepStrictEqual(Array.from(new Set(targets)).sort(), [
-    'stock-cherry-sun', 'stock-cocktail-consabor', 'stock-cocktail-sp',
-    'stock-cocktail-sun', 'stock-pera'
-  ]);
-  assert.strictEqual((HTML.match(/data-stock-delta="-10"/g) || []).length, 5, 'faltan decrementos');
-  assert.strictEqual((HTML.match(/data-stock-delta="10"/g) || []).length, 5, 'faltan incrementos');
+check('HTML · contenedores de stock dinámico y alta de existencias', () => {
+  for (const id of ['stock-rows', 'stock-add-article', 'stock-add-variety', 'stock-add-quantity', 'btn-add-stock-line']) {
+    assert.ok(HTML.includes(`id="${id}"`), `falta el contenedor/control ${id}`);
+  }
+  assert.ok(!/data-stock-target="stock-pera"/.test(HTML), 'las filas de stock ya no deben estar hardcodeadas');
 });
 
-check('HTML · CONSABOR, SUNSTREAM y SAO_PAULO se introducen como variedades', () => {
-  assert.ok(HTML.includes('>Consabor<'), 'falta la variedad Consabor');
-  assert.ok(HTML.includes('>Sunstream<'), 'falta la variedad Sunstream');
-  assert.ok(HTML.includes('>Sao Paulo<'), 'falta la variedad Sao Paulo');
-  assert.ok(HTML.includes('id="stock-cocktail-consabor"'), 'falta el input de Consabor');
+check('HTML · las variedades se eligen desde el catálogo, no son artículos', () => {
+  assert.ok(HTML.includes('id="stock-add-variety"'), 'falta el selector de variedad');
   assert.ok(!HTML.includes('id="stock-consabor"'), 'CONSABOR no debe ser un artículo propio');
+  assert.ok(UI_JS.includes('product.varieties'), 'la UI debe leer las variedades del catálogo');
 });
 
 check('HTML · el detalle no usa "hueco de camión" / truck slot (§8)', () => {
@@ -533,7 +529,7 @@ check('navegación · setView conmuta main[data-view] y aria-current', () => {
 check('navegación · vistas válidas y rechazo de vistas inexistentes', () => {
   const { controller } = freshController();
   assert.deepStrictEqual(ui.UIController.MOBILE_VIEWS,
-    ['forecast', 'stock', 'plan', 'more', 'locks', 'options']);
+    ['forecast', 'stock', 'plan', 'more', 'locks', 'options', 'catalog']);
   assert.strictEqual(controller.setView('locks'), true);
   assert.strictEqual(controller.setView('options'), true);
   assert.strictEqual(controller.setView('inexistente'), false);

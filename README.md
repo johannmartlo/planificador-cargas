@@ -56,11 +56,13 @@ El flujo de trabajo en el muelle está simplificado en 4 pasos secuenciales sin 
 
 ### 3.3. Cómo introducir existencias físicas
 1. Dirígete a la sección **PASO 2: Stock Físico Disponible**.
-2. Introduce las cajas reales que hay en almacén para cada línea:
-   - **Tomate Pera Rama** (estándar).
-   - **Tomate Cocktail Romántico — Sao Paulo** (lote antiguo, prioridad FIFO 1).
-   - **Tomate Cocktail Romántico — Sunstream** (lote fresco, prioridad FIFO 2).
-   - **Tomate Cherry Rama — Sunstream** (variedad estándar).
+2. La tabla muestra las líneas de stock guardadas. Edita las cajas reales de cada línea.
+3. Para un artículo activo que aún no tenga línea, usa **Añadir existencia**: elige artículo,
+   variedad (si procede) e introduce las cajas.
+4. La clave real es **artículo + variedad**. El formulario impide duplicar una línea y no
+   permite añadir existencias a artículos inactivos o inexistentes.
+5. Las existencias de un artículo desactivado se conservan como histórico, pero no se
+   planifican.
 
 ### 3.4. Bloqueos Prioritarios y Exclusiones (Opcional)
 - Si una plataforma tiene prioridad absoluta (por ejemplo, `CENTRO` debe recibir el 100% de su Pera Rama antes que nadie), despliega **Opciones Avanzadas** y añade un bloqueo prioritario (`FULL`).
@@ -139,6 +141,36 @@ $$\text{Altura Torre} = (N \times 144\text{ mm}) + \sum \text{Altura Mercancía}
   - **Sur**: 1 hueco (3 palets: 2.051 mm $\le$ 2.278 mm).
   - **Málaga**: 1 hueco (2 palets: 858 mm $\le$ 2.278 mm).
 
+### 5.3. Gestión de artículos (V4.8)
+
+La vista **Catálogo de Artículos** permite consultar, crear, editar, activar y desactivar artículos.
+En escritorio se accede con el botón **Catálogo** de la cabecera; en móvil, desde **Más → Catálogo de artículos**.
+
+- El formulario reutiliza el esquema y las validaciones de `catalog-schema.js`: ID y GIS únicos,
+  dimensiones y capacidades válidas, formatos completos, variedades y referencias coherentes.
+- El **ID no se puede cambiar** al editar; las variedades, FIFO, alias de stock y salvaguardas del
+  artículo existente se conservan.
+- Desactivar un artículo pide confirmación y el motor deja de planificarlo.
+- **Persistencia:** los cambios se guardan en `localStorage` de **este navegador**. Sobreviven a una
+  recarga, pero **no se comparten con otros equipos ni con producción**. El botón **Restaurar** vuelve
+  al catálogo de fábrica y borra la copia local.
+
+### 5.4. Stock dinámico (V4.8.2)
+
+La sección **Stock Disponible** ya no depende de cinco filas codificadas:
+
+- La tabla se construye con las líneas de stock del estado y se cruza con el catálogo actual.
+- **Añadir existencia** permite dar stock a cualquier artículo **activo**, incluidos los creados
+  desde la vista Catálogo. La variedad se elige del propio artículo.
+- Clave única real: **artículo + variedad** (`PERA_RAMA`, `COCKTAIL_ROMANTICO::CONSABOR`, etc.).
+  Se rechazan claves duplicadas, artículos inexistentes, artículos inactivos y cantidades
+  no enteras o negativas.
+- Al desactivar un artículo **no se borra su stock**: la línea queda marcada como inactiva y no
+  se planifica; tampoco se pueden crear líneas nuevas para él.
+- **Persistencia:** `localStorage['planificador-stock-v1']`, solo en este navegador. No se
+  sincroniza con otros equipos. Si el almacenamiento no está disponible, la UI avisa y no
+  presenta el cambio como guardado.
+
 ---
 
 ## 6. Salidas Operativas (Un Plan $\rightarrow$ Tres Salidas)
@@ -176,6 +208,8 @@ logistica-muelle/
 ├── src/                       # Código fuente modular (UMD desacoplado)
 │   ├── catalog-data.js        # Generado desde catalog.json — NO editar a mano
 │   ├── catalog-schema.js      # Validador puro del catálogo (sin DOM)
+│   ├── catalog-editor.js      # Altas/edición/estado + persistencia local (V4.8)
+│   ├── stock-editor.js        # Claves, validación y persistencia de stock (V4.8.2)
 │   ├── catalog.js             # API de catálogo construida desde los datos
 │   ├── parser.js              # Parser tolerante a fallos y agregador de demanda
 │   ├── hamilton.js            # Algoritmo de prorrateo proporcional (Hare-Niemeyer)
@@ -185,11 +219,11 @@ logistica-muelle/
 │   ├── ui.js                  # Controlador y estado de la UI (AppState/UIController)
 │   ├── mobile.css             # Shell móvil
 │   └── logistics-engine.js    # Motor clásico huérfano (no se carga en V4.6/V4.7)
-├── tests/                     # 15 suites .test.js + 3 scripts de comprobación (§9)
+├── tests/                     # 20 suites .test.js + 3 scripts de comprobación (§9)
 ├── tools/
 │   ├── build-catalog.js       # Valida catalog.json y genera src/catalog-data.js
-│   └── build-gas.js           # Genera gas/ — NO ejecutado en V4.7
-└── gas/                       # Bundle de Apps Script (sin regenerar en V4.7)
+│   └── build-gas.js           # Genera gas/ — NO ejecutado en V4.8.2
+└── gas/                       # Bundle de Apps Script (sin regenerar en V4.8.2)
 ```
 
 La documentación técnica del catálogo está en [`docs/CATALOGO_ARTICULOS.md`](docs/CATALOGO_ARTICULOS.md).
@@ -198,14 +232,19 @@ La documentación técnica del catálogo está en [`docs/CATALOGO_ARTICULOS.md`]
 
 ## 9. Ejecución de Tests Automatizados
 
-Sin dependencias externas: solo Node.js. Cada archivo se ejecuta por separado y devuelve código 0 si todo pasa.
+Sin dependencias npm: solo Node.js. Cada archivo se ejecuta por separado y devuelve código 0 si todo pasa. La suite responsive usa el Chrome/Edge ya instalado.
 
-**15 suites funcionales** (una por archivo `.test.js`):
+**20 suites funcionales** (una por archivo `.test.js`):
 
 ```bash
-# Catálogo configurable (V4.7)
+# Catálogo y stock configurable (V4.7/V4.8.2)
 node tests/catalog-schema.test.js
 node tests/catalog-configurable.test.js
+node tests/catalog-editor.test.js
+node tests/catalog-ui.test.js
+node tests/stock-editor.test.js
+node tests/stock-ui.test.js
+node tests/responsive-layout.test.js
 node tests/parser-error-propagation.test.js
 
 # Motor y planificación
@@ -232,6 +271,10 @@ node tests/gas-bundle-verify.js
 node tests/gas-functional-check.js
 node tests/mobile-visual-qa.js
 ```
+
+Resultado de referencia V4.8.3: **23 ejecutables, 609 comprobaciones, 0 fallos**.
+
+`responsive-layout.test.js` requiere Chrome/Edge instalado y Node 22+ (CDP con `WebSocket` global). Si no hay navegador, la suite se omite con un aviso explícito.
 
 **Batería completa (PowerShell):**
 

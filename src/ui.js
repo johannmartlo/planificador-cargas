@@ -13,18 +13,24 @@
     const orchestrator = require('./orchestrator.js');
     const parser = require('./parser.js');
     const catalog = require('./catalog.js');
-    module.exports = factory(orchestrator, parser, catalog);
+    const catalogEditor = require('./catalog-editor.js');
+    const stockEditorModule = require('./stock-editor.js');
+    module.exports = factory(orchestrator, parser, catalog, catalogEditor, stockEditorModule);
   } else {
     root.LogisticsUI = factory(
       root.LogisticsOrchestrator,
       root.LogisticsParser,
-      root.LogisticsCatalog
+      root.LogisticsCatalog,
+      root.LogisticsCatalogEditor,
+      root.LogisticsStockEditor
     );
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (
   orchestrator,
   parser,
-  catalog
+  catalog,
+  catalogEditor,
+  stockEditorModule
 ) {
   'use strict';
 
@@ -32,9 +38,71 @@
   const planLoad = orchestrator ? orchestrator.planLoad : null;
   const parseForecast = parser ? parser.parseForecast : null;
   const aggregateDemands = parser ? parser.aggregateDemands : null;
+  const editor = catalogEditor || null;
+  const stockEditor = stockEditorModule || null;
+
+  /**
+   * Catálogo por defecto en el formato de `catalog/catalog.json`, para el
+   * editor y la persistencia local. Es una copia: nunca se muta el original.
+   */
+  function getDefaultCatalogData() {
+    if (!editor) {
+      return {
+        schemaVersion: DEFAULT_CATALOG.schemaVersion,
+        catalogVersion: DEFAULT_CATALOG.catalogVersion,
+        globals: DEFAULT_CATALOG.globals || {},
+        platforms: DEFAULT_CATALOG.platforms || { canonical: [], aliases: {} },
+        articles: DEFAULT_CATALOG.articles || []
+      };
+    }
+    return editor.catalogDataFromDefault(DEFAULT_CATALOG);
+  }
 
   // Configuración por defecto de palets por regla operativa (Fase 9.1: Cataluña no fuerza METROCHEP)
   const DEFAULT_PALLET_CONFIGURATION = {};
+
+  /**
+   * Stock inicial de la UI histórica. Son valores 0, no reglas de negocio.
+   * El usuario puede añadir líneas para cualquier artículo activo del catálogo.
+   */
+  const DEFAULT_STOCK = {
+    'PERA_RAMA': 0,
+    'COCKTAIL_ROMANTICO::CONSABOR': 0,
+    'COCKTAIL_ROMANTICO::SAO_PAULO': 0,
+    'COCKTAIL_ROMANTICO::SUNSTREAM': 0,
+    'CHERRY_RAMA::SUNSTREAM': 0
+  };
+
+  /**
+   * IDs históricos de los cinco inputs. Se conservan para no romper enlaces,
+   * tests y accesibilidad; las líneas nuevas usan un ID derivado de la clave.
+   */
+  const LEGACY_STOCK_INPUT_IDS = {
+    'PERA_RAMA': 'stock-pera',
+    'COCKTAIL_ROMANTICO::CONSABOR': 'stock-cocktail-consabor',
+    'COCKTAIL_ROMANTICO::SAO_PAULO': 'stock-cocktail-sp',
+    'COCKTAIL_ROMANTICO::SUNSTREAM': 'stock-cocktail-sun',
+    'CHERRY_RAMA::SUNSTREAM': 'stock-cherry-sun'
+  };
+
+  function stockInputIdForKey(stockKey) {
+    if (LEGACY_STOCK_INPUT_IDS[stockKey]) return LEGACY_STOCK_INPUT_IDS[stockKey];
+    const slug = String(stockKey || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return `stock-${slug || 'linea'}`;
+  }
+
+  function stockDisplayName(stockKey, catalogConfig) {
+    const meta = stockEditor
+      ? stockEditor.entryMeta(stockKey, catalogConfig)
+      : { product: null };
+    const product = meta.product;
+    return product
+      ? (product.shortName || product.name || product.id)
+      : String(stockKey || '');
+  }
 
   // =========================================================================
   // Etiquetas de variedad (capa de PRESENTACIÓN)
@@ -376,18 +444,14 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
   class AppState {
     constructor() {
       this.reset();
+      this.initializeCatalog();
+      this.initializeStock();
     }
 
     reset() {
       this.rawText = '';
       this.forecastAnalysis = null;
-      this.stock = {
-        'PERA_RAMA': 0,
-        'COCKTAIL_ROMANTICO::CONSABOR': 0,
-        'COCKTAIL_ROMANTICO::SAO_PAULO': 0,
-        'COCKTAIL_ROMANTICO::SUNSTREAM': 0,
-        'CHERRY_RAMA::SUNSTREAM': 0
-      };
+      this.stock = { ...DEFAULT_STOCK };
       this.locks = [];
       this.exclusions = [];
       this.palletOverrides = {};
@@ -407,6 +471,139 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       // Colección unificada de pedidos (Previsión Consolidada + Anticipados + Divisiones)
       this.orders = [];
       this.selectedDeliveryDate = null;
+    }
+
+    /**
+     * Carga el catálogo activo desde el almacenamiento local (si existe) o usa
+     * el catálogo por defecto. Nunca muta `DEFAULT_CATALOG`.
+     * @param {Storage|null} [storage] Permite inyectar un almacenamiento en tests.
+     */
+    initializeCatalog(storage) {
+      const storageRef = storage !== undefined
+        ? storage
+        : (typeof localStorage !== 'undefined' ? localStorage : null);
+      this.catalogStorage = storageRef || null;
+      const defaultData = getDefaultCatalogData();
+      const loaded = editor
+        ? editor.loadCatalog(defaultData, this.catalogStorage)
+        : { data: defaultData, source: 'default', error: null };
+      this.applyCatalogData(loaded.data, loaded.source, loaded.error);
+    }
+
+    /**
+     * Carga el stock desde localStorage. Las claves históricas y las de
+     * artículos inactivos se conservan; no se descartan existencias.
+     */
+    initializeStock(storage) {
+      const storageRef = storage !== undefined
+        ? storage
+        : (typeof localStorage !== 'undefined' ? localStorage : null);
+      this.stockStorage = storageRef || null;
+      const loaded = stockEditor
+        ? stockEditor.loadStock(DEFAULT_STOCK, this.stockStorage, this.catalogConfig)
+        : { data: { ...DEFAULT_STOCK }, source: 'default', error: null };
+      this.stock = loaded.data;
+      this.stockSource = loaded.source;
+      this.stockLoadError = loaded.error || null;
+      this.stockStorageError = null;
+    }
+
+    persistStock() {
+      if (!stockEditor) {
+        return {
+          ok: false,
+          code: 'STOCK_EDITOR_UNAVAILABLE',
+          errors: [{ code: 'STOCK_EDITOR_UNAVAILABLE', message: 'Editor de stock no disponible.' }]
+        };
+      }
+      const saved = stockEditor.saveStock(this.stock, this.stockStorage, this.catalogConfig);
+      if (saved.ok) {
+        this.stockSource = 'local';
+        this.stockLoadError = null;
+        this.stockStorageError = null;
+      } else {
+        const first = saved.errors && saved.errors[0];
+        this.stockStorageError = first ? first.message : 'No se pudo guardar el stock.';
+      }
+      return saved;
+    }
+
+    addStockLine(productId, varietyId, quantity) {
+      if (!stockEditor) {
+        return { ok: false, errors: [{ code: 'STOCK_EDITOR_UNAVAILABLE', message: 'Editor de stock no disponible.' }] };
+      }
+      const validation = stockEditor.validateNewEntry(
+        { productId, varietyId, quantity },
+        this.catalogConfig || DEFAULT_CATALOG,
+        this.stock
+      );
+      if (!validation.ok) return validation;
+      this.stock[validation.stockKey] = validation.quantity;
+      const saved = this.persistStock();
+      this._checkPlanSyncState();
+      return {
+        ...validation,
+        ok: true,
+        persisted: saved.ok,
+        persistenceErrors: saved.ok ? [] : (saved.errors || [])
+      };
+    }
+
+    applyCatalogData(data, source, error) {
+      this.catalogData = data;
+      this.catalogConfig = (catalog && typeof catalog.buildCatalog === 'function')
+        ? catalog.buildCatalog(data)
+        : DEFAULT_CATALOG;
+      this.catalogSource = source || 'default';
+      this.catalogLoadError = error || null;
+    }
+
+    getCatalogArticle(id) {
+      const key = String(id || '').trim();
+      return (this.catalogData && this.catalogData.articles || []).find(a => a.id === key) || null;
+    }
+
+    getActiveCatalogArticles() {
+      return (this.catalogData && this.catalogData.articles || [])
+        .filter(a => a.status === 'ACTIVE');
+    }
+
+    /**
+     * Aplica y persiste un alta/edición. Solo actualiza el estado si la
+     * escritura local ha tenido éxito.
+     */
+    saveCatalogArticle(draft, originalId) {
+      if (!editor) {
+        return { ok: false, errors: [{ code: 'EDITOR_UNAVAILABLE', message: 'Editor de catálogo no disponible.' }] };
+      }
+      const applied = editor.applyDraft(this.catalogData, draft, originalId);
+      if (!applied.ok) return applied;
+      const saved = editor.saveCatalog(applied.data, this.catalogStorage);
+      if (!saved.ok) return saved;
+      this.applyCatalogData(applied.data, 'local', null);
+      this._invalidatePlan();
+      return applied;
+    }
+
+    setCatalogArticleStatus(id, status) {
+      if (!editor) {
+        return { ok: false, errors: [{ code: 'EDITOR_UNAVAILABLE', message: 'Editor de catálogo no disponible.' }] };
+      }
+      const changed = editor.setStatus(this.catalogData, id, status);
+      if (!changed.ok) return changed;
+      const saved = editor.saveCatalog(changed.data, this.catalogStorage);
+      if (!saved.ok) return saved;
+      this.applyCatalogData(changed.data, 'local', null);
+      this._invalidatePlan();
+      return changed;
+    }
+
+    resetCatalogToDefault() {
+      const defaultData = getDefaultCatalogData();
+      const removed = editor ? editor.resetCatalog(this.catalogStorage) : { ok: true };
+      this.applyCatalogData(defaultData, 'default', null);
+      this._invalidatePlan();
+      return { ok: true, storageError: removed.ok ? null : (removed.code || 'STORAGE_WRITE_FAILED') };
     }
 
     setRawText(text) {
@@ -455,18 +652,70 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
     }
 
     setStockItem(stockKey, value) {
-      const num = Math.max(0, Math.floor(Number(value) || 0));
-      this.stock[stockKey] = num;
+      if (!stockEditor) {
+        const num = Math.max(0, Math.floor(Number(value) || 0));
+        this.stock[stockKey] = num;
+        this._checkPlanSyncState();
+        return { ok: true, stockKey, quantity: num, persisted: false };
+      }
+      const key = String(stockKey || '').trim().toUpperCase();
+      if (!key) {
+        return { ok: false, errors: [{ code: 'MISSING_STOCK_KEY', message: 'La clave de stock no puede estar vacía.' }] };
+      }
+      const qty = stockEditor.normalizeQuantity(value);
+      if (!qty.ok) {
+        return { ok: false, errors: [{ code: qty.code, message: qty.message }] };
+      }
+      const next = { ...this.stock, [key]: qty.value };
+      const validation = stockEditor.validateStockObject(next, this.catalogConfig);
+      if (!validation.ok) return validation;
+      this.stock = next;
+      const saved = this.persistStock();
       this._checkPlanSyncState();
+      return {
+        ok: true,
+        stockKey: key,
+        quantity: qty.value,
+        persisted: saved.ok,
+        persistenceErrors: saved.ok ? [] : (saved.errors || [])
+      };
     }
 
     setStock(stockObj) {
-      if (!stockObj) return;
-      for (const [k, v] of Object.entries(stockObj)) {
-        const num = Math.max(0, Math.floor(Number(v) || 0));
-        this.stock[k] = num;
+      if (!stockObj) return { ok: true };
+      if (!stockEditor) {
+        for (const [k, v] of Object.entries(stockObj)) {
+          this.stock[k] = Math.max(0, Math.floor(Number(v) || 0));
+        }
+        this._checkPlanSyncState();
+        return { ok: true, persisted: false };
       }
+      const next = { ...this.stock };
+      const errors = [];
+      for (const [rawKey, rawValue] of Object.entries(stockObj)) {
+        const key = String(rawKey || '').trim().toUpperCase();
+        if (!key) {
+          errors.push({ code: 'MISSING_STOCK_KEY', message: 'La clave de stock no puede estar vacía.' });
+          continue;
+        }
+        const qty = stockEditor.normalizeQuantity(rawValue);
+        if (!qty.ok) {
+          errors.push({ code: qty.code, message: `Stock inválido para '${key}': ${qty.message}` });
+          continue;
+        }
+        next[key] = qty.value;
+      }
+      if (errors.length > 0) return { ok: false, errors };
+      const validation = stockEditor.validateStockObject(next);
+      if (!validation.ok) return validation;
+      this.stock = next;
+      const saved = this.persistStock();
       this._checkPlanSyncState();
+      return {
+        ok: true,
+        persisted: saved.ok,
+        persistenceErrors: saved.ok ? [] : (saved.errors || [])
+      };
     }
 
     setPalletOverride(platform, productId, palletType) {
@@ -1692,7 +1941,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
    */
 
   /** Vistas válidas del shell móvil (router de presentación, §7). */
-  const MOBILE_VIEWS = ['forecast', 'stock', 'plan', 'more', 'locks', 'options'];
+  const MOBILE_VIEWS = ['forecast', 'stock', 'plan', 'more', 'locks', 'options', 'catalog'];
 
   /**
    * Nombre de producto presentable sin duplicar la variedad física.
@@ -1733,6 +1982,630 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.isGenerating = false;
       this.selectedLockPlatform = 'CENTRO';
       this.expandedPlatforms = new Set();
+      this._editingArticleId = null;
+    }
+
+    // =====================================================================
+    // 2A. STOCK DINÁMICO (V4.8.2)
+    // =====================================================================
+
+    stockEntryMeta(stockKey) {
+      return stockEditor
+        ? stockEditor.entryMeta(stockKey, this.state.catalogConfig || DEFAULT_CATALOG)
+        : { product: null, variety: null, status: 'MISSING' };
+    }
+
+    sortedStockKeys() {
+      const products = (this.state.catalogConfig && this.state.catalogConfig.products) || {};
+      const order = Object.keys(products);
+      return Object.keys(this.state.stock || {}).sort((a, b) => {
+        const ma = this.stockEntryMeta(a);
+        const mb = this.stockEntryMeta(b);
+        const ia = order.indexOf(ma.productId);
+        const ib = order.indexOf(mb.productId);
+        const oa = ia === -1 ? Number.MAX_SAFE_INTEGER : ia;
+        const ob = ib === -1 ? Number.MAX_SAFE_INTEGER : ib;
+        if (oa !== ob) return oa - ob;
+        return String(a).localeCompare(String(b));
+      });
+    }
+
+    updateStockPersistenceNote() {
+      if (typeof document === 'undefined') return;
+      const note = document.getElementById('stock-persistence-note');
+      if (note) {
+        if (this.state.stockStorageError) {
+          note.textContent = 'No se pudo guardar el stock en este navegador; el cambio solo está en memoria.';
+        } else if (this.state.stockLoadError) {
+          note.textContent = 'No se pudo leer el stock local; se usa el stock por defecto hasta que guardes una línea válida.';
+        } else {
+          note.textContent = this.state.stockStorage
+            ? 'El stock se guarda en este navegador (localStorage). No se sincroniza con otros equipos ni con producción.'
+            : 'Sin almacenamiento local: el stock solo estará disponible durante esta sesión.';
+        }
+      }
+      const storageError = document.getElementById('stock-storage-error');
+      if (storageError) {
+        if (this.state.stockStorageError) {
+          storageError.textContent = this.state.stockStorageError;
+          storageError.classList.remove('hidden');
+        } else {
+          storageError.textContent = '';
+          storageError.classList.add('hidden');
+        }
+      }
+      const loadError = document.getElementById('stock-load-error');
+      if (loadError) {
+        if (this.state.stockLoadError) {
+          loadError.textContent = this.state.stockLoadError.message || 'El stock local no es válido; se usa el stock por defecto.';
+          loadError.classList.remove('hidden');
+        } else {
+          loadError.textContent = '';
+          loadError.classList.add('hidden');
+        }
+      }
+    }
+
+    showStockRowError(stockKey, message) {
+      if (typeof document === 'undefined') return;
+      const id = `stock-err-${stockInputIdForKey(stockKey)}`;
+      const box = document.getElementById(id);
+      if (!box) return;
+      if (message) {
+        box.textContent = message;
+        box.classList.remove('hidden');
+      } else {
+        box.textContent = '';
+        box.classList.add('hidden');
+      }
+    }
+
+    renderStockRows() {
+      if (typeof document === 'undefined') return;
+      const container = document.getElementById('stock-rows');
+      if (!container) return;
+      const keys = this.sortedStockKeys();
+      if (keys.length === 0) {
+        container.innerHTML = '<p class="py-3 text-xs italic text-[#5E6470]">No hay líneas de stock. Añade una existencia para empezar.</p>';
+        this.updateStockPersistenceNote();
+        return;
+      }
+
+      container.innerHTML = keys.map(stockKey => {
+        const meta = this.stockEntryMeta(stockKey);
+        const inputId = stockInputIdForKey(stockKey);
+        const qty = Number(this.state.stock[stockKey] || 0);
+        const missingProduct = !meta.product;
+        const missingVariety = Boolean(meta.product && meta.varietyId && !meta.variety);
+        const historical = missingProduct || missingVariety;
+        const inactive = meta.product && meta.status !== 'ACTIVE';
+        const statusBadge = historical
+          ? '<span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-950/50 text-amber-300 border border-amber-800/60">FUERA DE CATÁLOGO</span>'
+          : inactive
+            ? '<span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-950/40 text-rose-300 border border-rose-800/60">INACTIVO</span>'
+            : '';
+        const title = stockDisplayName(stockKey, this.state.catalogConfig || DEFAULT_CATALOG);
+        const disabled = historical ? ' disabled' : '';
+        return `
+          <div class="grid grid-cols-12 gap-3 py-2 items-center text-sm" data-stock-row="${escapeHtml(stockKey)}">
+            <div class="col-span-8 font-semibold text-[#EDEDEF] min-w-0">
+              <span class="stock-id">
+                <span class="sid-prod">${escapeHtml(title)}</span>
+                ${meta.varietyId ? `<span class="sid-var is-variety">${escapeHtml(meta.varietyId)}</span>` : ''}
+                ${meta.variety && meta.variety.isOldLot ? '<span class="sid-unit">FIFO</span>' : ''}
+              </span>
+              ${statusBadge}
+              <div id="stock-err-${escapeHtml(inputId)}" class="hidden text-[10px] text-rose-300 mt-0.5"></div>
+            </div>
+            <div class="col-span-4 flex items-center justify-end gap-1.5">
+              <div class="stock-stepper">
+                <button type="button" class="stock-step" data-stock-target="${escapeHtml(inputId)}" data-stock-delta="-10" aria-label="Restar 10 cajas"${disabled}>−</button>
+                <input id="${escapeHtml(inputId)}" data-stock-key="${escapeHtml(stockKey)}" type="number" min="0" step="1" value="${qty}" class="w-24 p-1.5 text-right font-mono font-bold text-white bg-[#0B0C0E] border border-[#22252A] rounded focus:bg-[#16181B] focus:border-[#EDEDEF] focus:outline-none transition-colors"${disabled} />
+                <span class="stock-unit">cjs</span>
+                <button type="button" class="stock-step" data-stock-target="${escapeHtml(inputId)}" data-stock-delta="10" aria-label="Sumar 10 cajas"${disabled}>+</button>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+      this.updateStockPersistenceNote();
+      this.bindStockRowInputs();
+    }
+
+    refreshStockVarietyOptions() {
+      if (typeof document === 'undefined') return;
+      const articleEl = document.getElementById('stock-add-article');
+      const varietyEl = document.getElementById('stock-add-variety');
+      if (!articleEl || !varietyEl) return;
+      const articleId = String(articleEl.value || '').trim().toUpperCase();
+      const products = (this.state.catalogConfig && this.state.catalogConfig.products) || {};
+      const product = products[articleId] || null;
+      const varieties = (product && Array.isArray(product.varieties)) ? product.varieties : [];
+      const previous = String(varietyEl.value || '').trim().toUpperCase();
+
+      if (varieties.length === 0) {
+        varietyEl.innerHTML = '<option value="">Sin variedad (estándar)</option>';
+        varietyEl.value = '';
+        varietyEl.disabled = true;
+        return;
+      }
+      varietyEl.innerHTML = varieties
+        .map(v => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.name || v.id)}</option>`)
+        .join('');
+      const preferred = product.defaultVarietyId || varieties[0].id;
+      const selected = varieties.some(v => v.id === previous) ? previous : preferred;
+      varietyEl.value = selected;
+      varietyEl.disabled = varieties.length === 1;
+    }
+
+    renderStockAddOptions() {
+      if (typeof document === 'undefined') return;
+      const articleEl = document.getElementById('stock-add-article');
+      const varietyEl = document.getElementById('stock-add-variety');
+      const addBtn = document.getElementById('btn-add-stock-line');
+      if (!articleEl) return;
+
+      const active = this.state.getActiveCatalogArticles ? this.state.getActiveCatalogArticles() : [];
+      const previous = String(articleEl.value || '').trim().toUpperCase();
+      articleEl.innerHTML = active
+        .map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.shortName || a.name || a.id)}</option>`)
+        .join('');
+      if (active.length === 0) {
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = 'No hay artículos activos';
+        articleEl.appendChild(empty);
+        articleEl.value = '';
+        articleEl.disabled = true;
+        if (varietyEl) {
+          varietyEl.innerHTML = '<option value="">—</option>';
+          varietyEl.disabled = true;
+        }
+        if (addBtn) addBtn.disabled = true;
+        return;
+      }
+
+      articleEl.disabled = false;
+      if (active.some(a => a.id === previous)) {
+        articleEl.value = previous;
+      } else {
+        articleEl.value = active[0].id;
+      }
+      this.refreshStockVarietyOptions();
+      if (addBtn) addBtn.disabled = false;
+    }
+
+    showStockAddError(errors) {
+      if (typeof document === 'undefined') return;
+      const box = document.getElementById('stock-add-error');
+      if (!box) return;
+      const list = Array.isArray(errors) ? errors : [];
+      box.textContent = list.length
+        ? list.map(e => (e && e.message) ? e.message : String(e)).join('\n')
+        : '';
+      if (box.textContent) {
+        box.classList.remove('hidden');
+      } else {
+        box.classList.add('hidden');
+      }
+    }
+
+    handleStockInput(stockKey, rawValue) {
+      const result = this.state.setStockItem(stockKey, rawValue);
+      if (!result.ok) {
+        const message = (result.errors && result.errors[0] && result.errors[0].message) || 'Cantidad de stock no válida.';
+        this.showStockRowError(stockKey, message);
+        return false;
+      }
+      this.showStockRowError(stockKey, '');
+      this.updateStockPersistenceNote();
+      if (!result.persisted) {
+        this.showToast('Stock actualizado en memoria, pero no se pudo guardar en este navegador.', 'error');
+      }
+      this.renderPlanStateBanner();
+      this.updateWorkflowBar();
+      this.renderWorkflowStrip();
+      return true;
+    }
+
+    handleStockAdd() {
+      if (typeof document === 'undefined') return false;
+      const articleEl = document.getElementById('stock-add-article');
+      const varietyEl = document.getElementById('stock-add-variety');
+      const qtyEl = document.getElementById('stock-add-quantity');
+      const articleId = articleEl ? articleEl.value : '';
+      const varietyId = varietyEl ? varietyEl.value : '';
+      const quantity = qtyEl ? qtyEl.value : '';
+      const result = this.state.addStockLine(articleId, varietyId, quantity);
+      if (!result.ok) {
+        this.showStockAddError(result.errors);
+        return false;
+      }
+      this.showStockAddError([]);
+      if (qtyEl) qtyEl.value = '';
+      this.renderStockRows();
+      this.renderStockAddOptions();
+      this.updateStockPersistenceNote();
+      if (!result.persisted) {
+        this.showToast('Existencia añadida en memoria, pero no se pudo guardar en este navegador.', 'error');
+      } else {
+        this.showToast('Existencia añadida y guardada en este navegador.');
+      }
+      this.renderPlanStateBanner();
+      this.updateWorkflowBar();
+      this.renderWorkflowStrip();
+      return true;
+    }
+
+    syncStockInputsFromDOM() {
+      if (typeof document === 'undefined') return { ok: true, errors: [] };
+      const container = document.getElementById('stock-rows');
+      if (!container) {
+        const legacy = {
+          'stock-pera': 'PERA_RAMA',
+          'stock-cocktail-consabor': 'COCKTAIL_ROMANTICO::CONSABOR',
+          'stock-cocktail-sp': 'COCKTAIL_ROMANTICO::SAO_PAULO',
+          'stock-cocktail-sun': 'COCKTAIL_ROMANTICO::SUNSTREAM',
+          'stock-cherry-sun': 'CHERRY_RAMA::SUNSTREAM'
+        };
+        const errors = [];
+        for (const [id, key] of Object.entries(legacy)) {
+          const el = document.getElementById(id);
+          if (!el) continue;
+          if (String(el.value === undefined || el.value === null ? '' : el.value).trim() === '') continue;
+          const result = this.state.setStockItem(key, el.value);
+          if (!result.ok) errors.push(...(result.errors || []));
+        }
+        return { ok: errors.length === 0, errors };
+      }
+      const errors = [];
+      const inputs = container.querySelectorAll ? container.querySelectorAll('input[data-stock-key]') : [];
+      inputs.forEach(input => {
+        if (String(input.value === undefined || input.value === null ? '' : input.value).trim() === '') return;
+        const key = input.getAttribute('data-stock-key');
+        const result = this.state.setStockItem(key, input.value);
+        if (!result.ok) {
+          errors.push(...(result.errors || []));
+          this.showStockRowError(key, result.errors && result.errors[0] ? result.errors[0].message : 'Cantidad no válida.');
+        } else {
+          this.showStockRowError(key, '');
+        }
+      });
+      return { ok: errors.length === 0, errors };
+    }
+
+    bindStockRowInputs() {
+      if (typeof document === 'undefined') return;
+      const container = document.getElementById('stock-rows');
+      if (!container || !container.querySelectorAll) return;
+      container.querySelectorAll('input[data-stock-key]').forEach(input => {
+        if (input._dshStockBound) return;
+        input._dshStockBound = true;
+        const handler = () => this.handleStockInput(input.getAttribute('data-stock-key'), input.value);
+        input.addEventListener('input', handler);
+        input.addEventListener('change', handler);
+      });
+    }
+
+    bindStockEvents() {
+      if (typeof document === 'undefined') return;
+      const self = this;
+      const container = document.getElementById('stock-rows');
+      if (container) {
+        // Las filas se regeneran al añadir líneas: se enlazan directamente y de
+        // forma idempotente tras cada render (el mini-DOM de tests no burbujea
+        // input; el navegador sí, y así se cubren ambos).
+        this.bindStockRowInputs();
+      } else {
+        const legacy = {
+          'stock-pera': 'PERA_RAMA',
+          'stock-cocktail-consabor': 'COCKTAIL_ROMANTICO::CONSABOR',
+          'stock-cocktail-sp': 'COCKTAIL_ROMANTICO::SAO_PAULO',
+          'stock-cocktail-sun': 'COCKTAIL_ROMANTICO::SUNSTREAM',
+          'stock-cherry-sun': 'CHERRY_RAMA::SUNSTREAM'
+        };
+        for (const [id, key] of Object.entries(legacy)) {
+          const el = document.getElementById(id);
+          if (!el) continue;
+          el.addEventListener('input', (event) => self.handleStockInput(key, event.target.value));
+        }
+      }
+
+      const articleEl = document.getElementById('stock-add-article');
+      if (articleEl) articleEl.addEventListener('change', () => self.refreshStockVarietyOptions());
+      const addBtn = document.getElementById('btn-add-stock-line');
+      if (addBtn) addBtn.addEventListener('click', () => self.handleStockAdd());
+    }
+
+    // 2B. CATÁLOGO DE ARTÍCULOS (V4.8)
+    // =====================================================================
+
+    confirmCatalogAction(message) {
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        return window.confirm(message);
+      }
+      return true;
+    }
+
+    showCatalogErrors(errors) {
+      if (typeof document === 'undefined') return;
+      const box = document.getElementById('catalog-form-error');
+      if (!box) return;
+      const list = Array.isArray(errors) ? errors : [];
+      box.textContent = list.length
+        ? list.map(e => (e && e.message) ? e.message : String(e)).join('\n')
+        : 'No se pudo guardar el artículo.';
+      box.classList.remove('hidden');
+    }
+
+    hideCatalogErrors() {
+      if (typeof document === 'undefined') return;
+      const box = document.getElementById('catalog-form-error');
+      if (box) {
+        box.textContent = '';
+        box.classList.add('hidden');
+      }
+    }
+
+    renderCatalog() {
+      if (typeof document === 'undefined') return;
+      const list = document.getElementById('catalog-articles-list');
+      const badge = document.getElementById('catalog-source-badge');
+      const note = document.getElementById('catalog-persistence-note');
+      const loadError = document.getElementById('catalog-load-error');
+      if (!list) return;
+
+      const data = this.state.catalogData || { articles: [] };
+      const articles = data.articles || [];
+      const isLocal = this.state.catalogSource === 'local';
+
+      if (badge) {
+        badge.textContent = isLocal ? 'CATÁLOGO LOCAL' : 'CATÁLOGO POR DEFECTO';
+        badge.className = isLocal
+          ? 'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-950/50 text-amber-300 border border-amber-800/60'
+          : 'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#16181B] text-[#8A8F98] border border-[#22252A]';
+      }
+      if (note) {
+        note.textContent = isLocal
+          ? 'Cambios guardados en este navegador (localStorage). No se sincronizan con otros equipos ni con producción.'
+          : 'Catálogo de fábrica. Cualquier cambio se guardará solo en este navegador; no se sincroniza con producción.';
+      }
+      if (loadError) {
+        if (this.state.catalogLoadError) {
+          const err = this.state.catalogLoadError;
+          loadError.textContent = err.message || 'El catálogo local no es válido; se usa el catálogo por defecto.';
+          loadError.classList.remove('hidden');
+        } else {
+          loadError.textContent = '';
+          loadError.classList.add('hidden');
+        }
+      }
+
+      if (articles.length === 0) {
+        list.innerHTML = '<p class="text-xs italic text-[#5E6470]">No hay artículos en el catálogo.</p>';
+        return;
+      }
+
+      list.innerHTML = articles.map(article => {
+        const active = article.status === 'ACTIVE';
+        const id = escapeHtml(article.id);
+        const formats = (article.palletization && article.palletization.formats) || {};
+        const formatText = Object.keys(formats).map(name => {
+          const f = formats[name] || {};
+          const capacity = Number(f.boxesPerLayer || 0) * Number(f.maxLayers || 0);
+          return `${name} ${f.boxesPerLayer || '?'}×${f.maxLayers || '?'} = ${capacity || '?'}`;
+        }).join(' · ');
+        const gis = ((article.identification && article.identification.gisCodes) || []).join(', ');
+        const varieties = (article.varieties || []).map(v => v.name || v.id).join(', ');
+        return `
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg bg-[#16181B] border border-[#22252A]">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold text-[#EDEDEF]">${escapeHtml(article.name || article.id)}</span>
+                <span class="text-[10px] font-mono text-[#8A8F98]">${id}</span>
+                <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${active ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-800/60' : 'bg-rose-950/40 text-rose-300 border border-rose-800/60'}">${active ? 'ACTIVO' : 'INACTIVO'}</span>
+              </div>
+              <div class="text-[11px] text-[#8A8F98] mt-1">GIS: ${escapeHtml(gis || '—')}${varieties ? ' · Variedades: ' + escapeHtml(varieties) : ''}</div>
+              <div class="text-[11px] font-mono text-[#5E6470] mt-0.5">${escapeHtml(formatText || 'Sin formatos')}</div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button type="button" data-catalog-action="edit" data-catalog-id="${id}" class="px-2.5 py-1 rounded bg-[#1D2024] hover:bg-[#22252A] text-[#EDEDEF] border border-[#2B2F36] text-[11px] font-semibold">Editar</button>
+              ${active
+                ? `<button type="button" data-catalog-action="deactivate" data-catalog-id="${id}" class="px-2.5 py-1 rounded bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/60 text-[11px] font-semibold">Desactivar</button>`
+                : `<button type="button" data-catalog-action="activate" data-catalog-id="${id}" class="px-2.5 py-1 rounded bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border border-emerald-800/60 text-[11px] font-semibold">Activar</button>`}
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    openCatalogEditor(articleId) {
+      if (typeof document === 'undefined' || !editor) return false;
+      const panel = document.getElementById('catalog-editor-panel');
+      if (!panel) return false;
+      const article = articleId ? this.state.getCatalogArticle(articleId) : null;
+      if (articleId && !article) {
+        this.showCatalogErrors([{ message: `No existe el artículo ${articleId}.` }]);
+        return false;
+      }
+      const draft = article ? editor.draftFromArticle(article) : editor.createDraft();
+      this._editingArticleId = article ? article.id : null;
+
+      const set = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.value = value === undefined || value === null ? '' : String(value);
+      };
+      set('catalog-id', draft.id);
+      set('catalog-name', draft.name);
+      set('catalog-short-name', draft.shortName);
+      set('catalog-status', draft.status);
+      set('catalog-gis', draft.gisCodes);
+      set('catalog-pattern', draft.pattern);
+      set('catalog-box-length', draft.boxLength);
+      set('catalog-box-width', draft.boxWidth);
+      set('catalog-box-height', draft.boxHeight);
+      set('catalog-euro-pallet-length', draft.euroPalletLength);
+      set('catalog-euro-pallet-width', draft.euroPalletWidth);
+      set('catalog-euro-boxes-per-layer', draft.euroBoxesPerLayer);
+      set('catalog-euro-max-layers', draft.euroMaxLayers);
+      set('catalog-metro-pallet-length', draft.metroPalletLength);
+      set('catalog-metro-pallet-width', draft.metroPalletWidth);
+      set('catalog-metro-boxes-per-layer', draft.metroBoxesPerLayer);
+      set('catalog-metro-max-layers', draft.metroMaxLayers);
+
+      const idEl = document.getElementById('catalog-id');
+      if (idEl) {
+        idEl.readOnly = Boolean(article);
+        idEl.classList.toggle('opacity-60', Boolean(article));
+      }
+      const title = document.getElementById('catalog-form-title');
+      if (title) title.textContent = article ? `Editar ${article.id}` : 'Nuevo artículo';
+      const formNote = document.getElementById('catalog-form-note');
+      if (formNote) {
+        formNote.textContent = article
+          ? 'Las variedades, FIFO, alias de stock y salvaguardas del artículo existente se conservan. El identificador no se puede cambiar.'
+          : 'Se creará con estrategia HAMILTON, sin variedades ni alias. Revise las dimensiones y capacidades físicas.';
+      }
+
+      this.hideCatalogErrors();
+      panel.classList.remove('hidden');
+      if (typeof panel.scrollIntoView === 'function') panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return true;
+    }
+
+    closeCatalogEditor() {
+      if (typeof document === 'undefined') return;
+      const panel = document.getElementById('catalog-editor-panel');
+      if (panel) panel.classList.add('hidden');
+      this._editingArticleId = null;
+      this.hideCatalogErrors();
+    }
+
+    readCatalogForm() {
+      const value = (id) => {
+        const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
+        return el ? el.value : '';
+      };
+      return {
+        id: value('catalog-id'),
+        name: value('catalog-name'),
+        shortName: value('catalog-short-name'),
+        status: value('catalog-status') || 'ACTIVE',
+        gisCodes: value('catalog-gis'),
+        pattern: value('catalog-pattern'),
+        boxLength: value('catalog-box-length'),
+        boxWidth: value('catalog-box-width'),
+        boxHeight: value('catalog-box-height'),
+        euroPalletLength: value('catalog-euro-pallet-length'),
+        euroPalletWidth: value('catalog-euro-pallet-width'),
+        euroBoxesPerLayer: value('catalog-euro-boxes-per-layer'),
+        euroMaxLayers: value('catalog-euro-max-layers'),
+        metroPalletLength: value('catalog-metro-pallet-length'),
+        metroPalletWidth: value('catalog-metro-pallet-width'),
+        metroBoxesPerLayer: value('catalog-metro-boxes-per-layer'),
+        metroMaxLayers: value('catalog-metro-max-layers')
+      };
+    }
+
+    handleCatalogSave() {
+      const draft = this.readCatalogForm();
+      if (this._editingArticleId && draft.status === 'INACTIVE') {
+        const original = this.state.getCatalogArticle(this._editingArticleId);
+        if (original && original.status === 'ACTIVE' &&
+            !this.confirmCatalogAction(`¿Desactivar el artículo ${this._editingArticleId}? Dejará de poder planificarse.`)) {
+          return false;
+        }
+      }
+      const result = this.state.saveCatalogArticle(draft, this._editingArticleId);
+      if (!result.ok) {
+        this.showCatalogErrors(result.errors);
+        this.showToast('No se pudo guardar el artículo. Revise los datos.', 'error');
+        return false;
+      }
+      this.closeCatalogEditor();
+      this.renderCatalog();
+      this.populateDropdowns(null);
+      this.renderStockRows();
+      this.renderStockAddOptions();
+      this.regeneratePlanIfExists();
+      this.showToast('Artículo guardado en este navegador.');
+      return true;
+    }
+
+    handleCatalogStatus(articleId, status) {
+      const targetStatus = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      if (targetStatus === 'INACTIVE' &&
+          !this.confirmCatalogAction(`¿Desactivar el artículo ${articleId}? Dejará de poder planificarse.`)) {
+        return false;
+      }
+      const result = this.state.setCatalogArticleStatus(articleId, targetStatus);
+      if (!result.ok) {
+        this.showCatalogErrors(result.errors);
+        this.showToast('No se pudo cambiar el estado del artículo.', 'error');
+        return false;
+      }
+      this.renderCatalog();
+      this.populateDropdowns(null);
+      this.renderStockRows();
+      this.renderStockAddOptions();
+      this.regeneratePlanIfExists();
+      this.showToast(targetStatus === 'ACTIVE' ? 'Artículo activado.' : 'Artículo desactivado.');
+      return true;
+    }
+
+    handleCatalogReset() {
+      if (!this.confirmCatalogAction('¿Restaurar el catálogo por defecto? Se perderán los cambios guardados en este navegador.')) {
+        return false;
+      }
+      const result = this.state.resetCatalogToDefault();
+      this.renderCatalog();
+      this.populateDropdowns(null);
+      this.renderStockRows();
+      this.renderStockAddOptions();
+      this.regeneratePlanIfExists();
+      if (result.storageError) {
+        this.showToast('Catálogo restaurado en memoria; no se pudo limpiar el almacenamiento local.', 'error');
+      } else {
+        this.showToast('Catálogo restaurado por defecto.');
+      }
+      return true;
+    }
+
+    bindCatalogEvents() {
+      if (typeof document === 'undefined') return;
+      const self = this;
+      const on = (id, fn) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', fn);
+      };
+
+      on('btn-catalog-new', () => self.openCatalogEditor(null));
+      on('btn-catalog-reset', () => self.handleCatalogReset());
+      on('btn-catalog-save', () => self.handleCatalogSave());
+      on('btn-catalog-cancel', () => self.closeCatalogEditor());
+      on('btn-catalog-back', () => self.setView('more'));
+      on('btn-more-catalog', () => self.setView('catalog'));
+      on('btn-open-catalog-desktop', () => {
+        const section = document.getElementById('catalog-section');
+        if (section && typeof section.scrollIntoView === 'function') {
+          section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+
+      const list = document.getElementById('catalog-articles-list');
+      if (list) {
+        list.addEventListener('click', (event) => {
+          const button = event.target.closest ? event.target.closest('[data-catalog-action]') : null;
+          if (!button) return;
+          const action = button.getAttribute('data-catalog-action');
+          const articleId = button.getAttribute('data-catalog-id');
+          if (action === 'edit') {
+            self.openCatalogEditor(articleId);
+          } else if (action === 'activate') {
+            self.handleCatalogStatus(articleId, 'ACTIVE');
+          } else if (action === 'deactivate') {
+            self.handleCatalogStatus(articleId, 'INACTIVE');
+          }
+        });
+      }
     }
 
     togglePlatformDetail(platform) {
@@ -1775,13 +2648,17 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
 
     getLockActionsForPlatform(platform) {
       const plat = platform || this.selectedLockPlatform || 'CENTRO';
-      return [
+      const all = [
         { id: 'PERA_RAMA', label: 'PERA COMPLETA', buttonId: 'btn-lock-pera', type: 'FULL' },
         { id: 'COCKTAIL_ROMANTICO', varietyId: 'CONSABOR', label: 'COCKTAIL CONSABOR', buttonId: 'btn-lock-cocktail-consabor', type: 'FULL' },
         { id: 'COCKTAIL_ROMANTICO', varietyId: 'SAO_PAULO', label: 'COCKTAIL SP', buttonId: 'btn-lock-cocktail-sp', type: 'FULL' },
         { id: 'COCKTAIL_ROMANTICO', varietyId: 'SUNSTREAM', label: 'COCKTAIL SUN', buttonId: 'btn-lock-cocktail-sun', type: 'FULL' },
         { id: 'CHERRY_RAMA', label: 'CHERRY COMPLETO', buttonId: 'btn-lock-cherry', type: 'FULL' }
       ];
+      const articles = (this.state && this.state.catalogData && this.state.catalogData.articles) || [];
+      if (articles.length === 0) return all;
+      const active = new Set(articles.filter(a => a.status === 'ACTIVE').map(a => a.id));
+      return all.filter(a => active.has(a.id));
     }
 
     createFullLock(productId, varietyId = null, label = '') {
@@ -1918,7 +2795,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
         throw new Error('Módulo LogisticsParser no disponible.');
       }
 
-      const parsed = parseForecast(this.state.rawText, DEFAULT_CATALOG);
+      const parsed = parseForecast(this.state.rawText, this.state.catalogConfig || DEFAULT_CATALOG);
       const allLines = parsed.lines || [];
       const validLines = allLines.filter(l => l && l.isValid);
       const errorLines = (parsed.parsingErrors || []).length;
@@ -2003,6 +2880,7 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
         stock: { ...this.state.stock },
         locks: [...this.state.locks],
         exclusions: [...this.state.exclusions],
+        catalogConfig: this.state.catalogConfig || DEFAULT_CATALOG,
         palletConfiguration: {
           ...DEFAULT_PALLET_CONFIGURATION,
           ...this.state.palletOverrides
@@ -2712,26 +3590,10 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
         });
       }
 
-      // Inputs de Stock
-      const stockInputs = [
-        { id: 'stock-pera', key: 'PERA_RAMA' },
-        { id: 'stock-cocktail-consabor', key: 'COCKTAIL_ROMANTICO::CONSABOR' },
-        { id: 'stock-cocktail-sp', key: 'COCKTAIL_ROMANTICO::SAO_PAULO' },
-        { id: 'stock-cocktail-sun', key: 'COCKTAIL_ROMANTICO::SUNSTREAM' },
-        { id: 'stock-cherry-sun', key: 'CHERRY_RAMA::SUNSTREAM' }
-      ];
-
-      stockInputs.forEach(item => {
-        const el = document.getElementById(item.id);
-        if (el) {
-          el.addEventListener('input', e => {
-            self.state.setStockItem(item.key, e.target.value);
-            self.renderPlanStateBanner();
-            self.updateWorkflowBar();
-            self.renderWorkflowStrip();
-          });
-        }
-      });
+      // Stock dinámico: la tabla se construye desde el catálogo y el estado.
+      this.renderStockRows();
+      this.renderStockAddOptions();
+      this.bindStockEvents();
 
       // Botón Añadir Exclusión
       const btnAddExclusion = document.getElementById('btn-add-exclusion');
@@ -3076,7 +3938,9 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.bindMobileShell();
 
       // Inicializar dropdowns, listas, barra de acciones y botones de estado
+      this.bindCatalogEvents();
       this.populateDropdowns(null);
+      this.renderCatalog();
       this.renderPalletOverridesList();
       this.renderActionsToolbar(null);
       this.renderPlanStateBanner();
@@ -3107,61 +3971,71 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
 
       // --- 2. Steppers de stock (§12) -------------------------------------
       // Sincronizan el input real y, con él, el AppState existente.
-      document.querySelectorAll('.stock-step').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const targetId = btn.getAttribute('data-stock-target');
-          const delta = Number(btn.getAttribute('data-stock-delta')) || 0;
-          const input = targetId ? document.getElementById(targetId) : null;
-          if (!input) return;
+      const applyStockStep = (btn) => {
+        const targetId = btn.getAttribute('data-stock-target');
+        const delta = Number(btn.getAttribute('data-stock-delta')) || 0;
+        const input = targetId ? document.getElementById(targetId) : null;
+        if (!input) return;
 
-          const rawMax = btn.getAttribute('data-stock-max');
-          const max = rawMax === null ? null : Number(rawMax);
-          const current = Math.max(0, Math.floor(Number(input.value) || 0));
-          let next = current + delta;
-          if (next < 0) next = 0;
-          if (max !== null && !isNaN(max) && next > max) next = max;
+        const rawMax = btn.getAttribute('data-stock-max');
+        const max = rawMax === null ? null : Number(rawMax);
+        const current = Math.max(0, Math.floor(Number(input.value) || 0));
+        let next = current + delta;
+        if (next < 0) next = 0;
+        if (max !== null && !isNaN(max) && next > max) next = max;
 
-          if (next === current) return;
-          input.value = String(next);
+        if (next === current) return;
+        input.value = String(next);
 
-          // Se notifica el cambio reutilizando el MISMO evento `input` que ya
-          // escucha bindDOM(): el stepper táctil no abre ninguna vía de estado
-          // nueva.
-          //
-          // FASE 18.4 · BUG REAL CORREGIDO. Antes se despachaba un OBJETO PLANO
-          // ({ type:'input', ... }). En un navegador real,
-          // EventTarget.dispatchEvent() exige una instancia de Event y lanza
-          // TypeError ("parameter 1 is not of type 'Event'"). La excepción
-          // abortaba este handler justo después de escribir input.value: el
-          // número cambiaba en pantalla pero el AppState NUNCA se enteraba, así
-          // que el plan se generaba con el stock anterior. El doble mini-dom
-          // acepta objetos planos, por eso los tests no lo veían.
-          //
-          // Con un Event real el navegador fija `target` en el propio input y el
-          // listener existente (e.target.value) funciona igual que al teclear.
-          // La detección exige un EventTarget REAL: en Node/tests existe el
-          // constructor global Event pero el DOM es un doble, así que se usa el
-          // objeto plano solo como último recurso.
-          var dispatched = false;
-          var realDOM = false;
+        // Se notifica el cambio reutilizando el MISMO evento `input` que ya
+        // escucha bindDOM(): el stepper táctil no abre ninguna vía de estado
+        // nueva.
+        //
+        // FASE 18.4 · BUG REAL CORREGIDO. Antes se despachaba un OBJETO PLANO
+        // ({ type:'input', ... }). En un navegador real,
+        // EventTarget.dispatchEvent() exige una instancia de Event y lanza
+        // TypeError ("parameter 1 is not of type 'Event'"). La excepción
+        // abortaba este handler justo después de escribir input.value: el
+        // número cambiaba en pantalla pero el AppState NUNCA se enteraba, así
+        // que el plan se generaba con el stock anterior. El doble mini-dom
+        // acepta objetos planos, por eso los tests no lo veían.
+        //
+        // Con un Event real el navegador fija `target` en el propio input y el
+        // listener existente (e.target.value) funciona igual que al teclear.
+        // La detección exige un EventTarget REAL: en Node/tests existe el
+        // constructor global Event pero el DOM es un doble, así que se usa el
+        // objeto plano solo como último recurso.
+        var dispatched = false;
+        var realDOM = false;
+        try {
+          realDOM = typeof Event === 'function' &&
+            typeof window !== 'undefined' &&
+            typeof window.EventTarget === 'function' &&
+            input instanceof window.EventTarget;
+        } catch (err) { realDOM = false; }
+
+        if (realDOM) {
           try {
-            realDOM = typeof Event === 'function' &&
-              typeof window !== 'undefined' &&
-              typeof window.EventTarget === 'function' &&
-              input instanceof window.EventTarget;
-          } catch (err) { realDOM = false; }
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            dispatched = true;
+          } catch (err) { dispatched = false; }
+        }
+        if (!dispatched && input.dispatchEvent) {
+          input.dispatchEvent({ type: 'input', bubbles: true, target: input, currentTarget: input });
+        }
+      };
 
-          if (realDOM) {
-            try {
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              dispatched = true;
-            } catch (err) { dispatched = false; }
-          }
-          if (!dispatched && input.dispatchEvent) {
-            input.dispatchEvent({ type: 'input', bubbles: true, target: input, currentTarget: input });
-          }
+      const stockRowsEl = document.getElementById('stock-rows');
+      if (stockRowsEl) {
+        stockRowsEl.addEventListener('click', (event) => {
+          const btn = event.target && event.target.closest ? event.target.closest('.stock-step') : null;
+          if (btn) applyStockStep(btn);
         });
-      });
+      } else {
+        document.querySelectorAll('.stock-step').forEach(btn => {
+          btn.addEventListener('click', () => applyStockStep(btn));
+        });
+      }
 
       // --- 3. Detalle de plataforma (§9) ----------------------------------
       const cardsContainer = document.getElementById('platform-plan-cards-container');
@@ -3227,25 +4101,31 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       this.renderPlanGlobalHeader(this.state.planningResult);
     }
     fillStock(stockObj) {
-      if (!stockObj) return;
-      for (const [k, v] of Object.entries(stockObj)) {
-        this.state.setStockItem(k, v);
+      if (!stockObj) return false;
+      const result = this.state.setStock(stockObj);
+      if (!result.ok) {
+        this.showToast((result.errors && result.errors[0] && result.errors[0].message) || 'Stock no válido.', 'error');
+        return false;
       }
       if (typeof document !== 'undefined') {
-        const elPera = document.getElementById('stock-pera');
-        const elSP = document.getElementById('stock-cocktail-sp');
-        const elSUN = document.getElementById('stock-cocktail-sun');
-        const elCherry = document.getElementById('stock-cherry-sun');
-        const elConsabor = document.getElementById('stock-cocktail-consabor');
-        if (elPera && stockObj['PERA_RAMA'] !== undefined) elPera.value = stockObj['PERA_RAMA'];
-        if (elConsabor && stockObj['COCKTAIL_ROMANTICO::CONSABOR'] !== undefined) elConsabor.value = stockObj['COCKTAIL_ROMANTICO::CONSABOR'];
-        if (elSP && stockObj['COCKTAIL_ROMANTICO::SAO_PAULO'] !== undefined) elSP.value = stockObj['COCKTAIL_ROMANTICO::SAO_PAULO'];
-        if (elSUN && stockObj['COCKTAIL_ROMANTICO::SUNSTREAM'] !== undefined) elSUN.value = stockObj['COCKTAIL_ROMANTICO::SUNSTREAM'];
-        if (elCherry && stockObj['CHERRY_RAMA::SUNSTREAM'] !== undefined) elCherry.value = stockObj['CHERRY_RAMA::SUNSTREAM'];
+        const container = document.getElementById('stock-rows');
+        if (container) {
+          this.renderStockRows();
+        } else {
+          for (const [key, id] of Object.entries(LEGACY_STOCK_INPUT_IDS)) {
+            const el = document.getElementById(id);
+            if (el && stockObj[key] !== undefined) el.value = stockObj[key];
+          }
+        }
+        this.updateStockPersistenceNote();
+        if (!result.persisted) {
+          this.showToast('Stock actualizado en memoria, pero no se pudo guardar en este navegador.', 'error');
+        }
         this.renderPlanStateBanner();
         this.updateWorkflowBar();
         this.renderWorkflowStrip();
       }
+      return true;
     }
 
     handleAnalyze() {
@@ -3281,17 +4161,13 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
 
       const execute = () => {
         try {
-          // Sincronizar inputs numéricos de stock antes de generar
-          const elPera = document.getElementById('stock-pera');
-          const elSP = document.getElementById('stock-cocktail-sp');
-          const elSUN = document.getElementById('stock-cocktail-sun');
-          const elCherry = document.getElementById('stock-cherry-sun');
-          const elConsabor = document.getElementById('stock-cocktail-consabor');
-          if (elPera) this.state.setStockItem('PERA_RAMA', elPera.value);
-          if (elConsabor) this.state.setStockItem('COCKTAIL_ROMANTICO::CONSABOR', elConsabor.value);
-          if (elSP) this.state.setStockItem('COCKTAIL_ROMANTICO::SAO_PAULO', elSP.value);
-          if (elSUN) this.state.setStockItem('COCKTAIL_ROMANTICO::SUNSTREAM', elSUN.value);
-          if (elCherry) this.state.setStockItem('CHERRY_RAMA::SUNSTREAM', elCherry.value);
+          // Sincronizar inputs de stock (dinámicos o legado) antes de generar.
+          const stockSync = this.syncStockInputsFromDOM();
+          if (!stockSync.ok) {
+            const first = stockSync.errors && stockSync.errors[0];
+            this.showToast(first ? first.message : 'Revisa las cantidades de stock antes de generar el plan.', 'error');
+            return null;
+          }
 
           const tsvInput = document.getElementById('tsv-input');
           if (tsvInput) this.state.setRawText(tsvInput.value);
@@ -4239,7 +5115,12 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       const errEl = document.getElementById('order-form-error');
 
       if (platEl) platEl.value = '';
-      if (prodEl) prodEl.value = 'PERA_RAMA';
+      if (prodEl) {
+        const active = this.state.getActiveCatalogArticles ? this.state.getActiveCatalogArticles() : [];
+        prodEl.value = active.some(a => a.id === 'PERA_RAMA')
+          ? 'PERA_RAMA'
+          : (active.length > 0 ? active[0].id : '');
+      }
       if (varEl) varEl.value = '';
       if (boxesEl) boxesEl.value = '';
       if (dateEl) {
@@ -4536,33 +5417,49 @@ SANTANDER\t21/09/2026\t18746\tTOMATE CHERRY RAMA SUNSTREAM CARREFOUR\t4`.trim()
       const exclProd = document.getElementById('exclusion-product-val');
       const overridePlat = document.getElementById('override-pallet-platform');
       const overrideProd = document.getElementById('override-pallet-product');
+      const orderProd = document.getElementById('order-product');
+      const fixedLockProd = document.getElementById('lock-fixed-product');
 
       const platforms = analysis && analysis.platformsFound && analysis.platformsFound.length > 0
         ? analysis.platformsFound
-        : (DEFAULT_CATALOG.platforms && DEFAULT_CATALOG.platforms.canonical) || ['CENTRO', 'CATALUÑA', 'LEVANTE', 'SUR', 'SANTANDER', 'MALAGA'];
+        : ((this.state.catalogData && this.state.catalogData.platforms && this.state.catalogData.platforms.canonical) ||
+          (DEFAULT_CATALOG.platforms && DEFAULT_CATALOG.platforms.canonical) || ['CENTRO', 'CATALUÑA', 'LEVANTE', 'SUR', 'SANTANDER', 'MALAGA']);
 
+      const activeArticles = this.state.getActiveCatalogArticles
+        ? this.state.getActiveCatalogArticles()
+        : [];
+      const activeIds = activeArticles.map(a => a.id);
       const products = analysis && analysis.productsFound && analysis.productsFound.length > 0
-        ? analysis.productsFound
-        : ['PERA_RAMA', 'COCKTAIL_ROMANTICO', 'CHERRY_RAMA'];
+        ? analysis.productsFound.filter(id => activeIds.indexOf(id) !== -1)
+        : activeIds;
 
-      if (lockPlat) {
-        lockPlat.innerHTML = platforms.map(p => `<option value="${p}">${p}</option>`).join('');
-      }
-      if (exclPlat) {
-        exclPlat.innerHTML = platforms.map(p => `<option value="${p}">${p}</option>`).join('');
-      }
-      if (lockProd) {
-        lockProd.innerHTML = products.map(p => `<option value="${p}">${p}</option>`).join('');
-      }
-      if (exclProd) {
-        exclProd.innerHTML = products.map(p => `<option value="${p}">${p}</option>`).join('');
-      }
-      if (overridePlat) {
-        overridePlat.innerHTML = platforms.map(p => `<option value="${p}">${p}</option>`).join('');
-      }
-      if (overrideProd) {
-        overrideProd.innerHTML = products.map(p => `<option value="${p}">${p}</option>`).join('');
-      }
+      const fillPlatforms = (el) => {
+        if (!el) return;
+        const current = el.value;
+        el.innerHTML = platforms
+          .map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)
+          .join('');
+        if (platforms.indexOf(current) !== -1) el.value = current;
+      };
+      const fillProducts = (el) => {
+        if (!el) return;
+        const current = el.value;
+        el.innerHTML = products.map(id => {
+          const article = activeArticles.find(a => a.id === id);
+          const label = article ? (article.shortName || article.name || id) : id;
+          return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+        }).join('');
+        if (products.indexOf(current) !== -1) el.value = current;
+      };
+
+      fillPlatforms(lockPlat);
+      fillPlatforms(exclPlat);
+      fillPlatforms(overridePlat);
+      fillProducts(lockProd);
+      fillProducts(exclProd);
+      fillProducts(overrideProd);
+      fillProducts(orderProd);
+      fillProducts(fixedLockProd);
 
       this.renderLockPlatformPills();
       this.renderLockActionButtons();

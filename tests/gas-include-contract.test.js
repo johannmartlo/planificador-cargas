@@ -150,7 +150,7 @@ check('ensamblado · todos los módulos JS incluidos llegan al documento', () =>
 // ---------------------------------------------------------------------------
 // 5. Sintaxis de todos los módulos JS + cordura del CSS
 // ---------------------------------------------------------------------------
-check('sintaxis · los 7 módulos JS compilan', () => {
+check('sintaxis · todos los módulos JS incluidos compilan', () => {
   const js = SRC_FILES.filter(f => /_js\.html$/.test(f));
   for (const f of js) {
     const src = fs.readFileSync(path.join(GAS, f), 'utf8');

@@ -40,11 +40,16 @@ const sha256 = buf => crypto.createHash('sha256').update(buf).digest('hex');
 /**
  * Los módulos UMD, en el MISMO orden estricto de dependencia que index.html.
  * V4.7 incorpora `catalog-data.js` (datos generados desde catalog/catalog.json)
- * antes de `catalog.js`. El bundle GAS NO se regenera en esta versión.
+ * antes de `catalog.js`. V4.8 añade `catalog-schema.js`, `catalog-editor.js` y
+ * `stock-editor.js` para la gestión local de artículos y existencias. El bundle
+ * GAS NO se regenera aquí.
  */
 const MODULES = [
   'catalog-data.js',
   'catalog.js',
+  'catalog-schema.js',
+  'catalog-editor.js',
+  'stock-editor.js',
   'parser.js',
   'hamilton.js',
   'cocktail-solver.js',

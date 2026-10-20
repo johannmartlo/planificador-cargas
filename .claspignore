@@ -8,14 +8,17 @@
 # Estrategia: allowlist estricta. Se ignora todo (`**/*`) y se vuelven a
 # permitir únicamente los artefactos del shell de Google Apps Script.
 #
-# `clasp push` sube EXACTAMENTE 12 archivos tras regenerar el bundle V4.7.
-# (El gas/ actual, sin regenerar, aún contiene 11: falta SRC_catalog_data_js.html.)
+# `clasp push` sube EXACTAMENTE 15 archivos tras regenerar el bundle V4.8.2.
+# (El gas/ actual, sin regenerar, aún contiene 11: falta el bundle V4.7/V4.8.)
 #   appsscript.json   manifiesto del proyecto (clasp lo sube siempre)
 #   Code.gs           doGet + include (SIN lógica de negocio)
 #   index.html        shell: estructura + <style> + scriptlets
 #   SRC_mobile_css.html           <- src/mobile.css        (verbatim)
 #   SRC_catalog_data_js.html      <- src/catalog-data.js   (verbatim)
 #   SRC_catalog_js.html           <- src/catalog.js        (verbatim)
+#   SRC_catalog_schema_js.html    <- src/catalog-schema.js (verbatim)
+#   SRC_catalog_editor_js.html    <- src/catalog-editor.js (verbatim)
+#   SRC_stock_editor_js.html      <- src/stock-editor.js   (verbatim)
 #   SRC_parser_js.html            <- src/parser.js         (verbatim)
 #   SRC_hamilton_js.html          <- src/hamilton.js       (verbatim)
 #   SRC_cocktail_solver_js.html   <- src/cocktail-solver.js(verbatim)
